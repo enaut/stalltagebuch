@@ -1,0 +1,47 @@
+[application]
+name = "stalltagebuch"
+
+# Hinweis: Der frühere post-build Hook (application.tools) wurde entfernt,
+# weil er für Android keinen Pre-Build bietet und unsere MainActivity vom
+# internen dx Build überschrieben wurde. Wir nutzen jetzt ein externes
+# Wrapper-Skript `build_android.sh` nach `dx build`.
+
+# Android-specific configuration
+[application.android]
+# Package name (must be unique in Play Store)
+package = "de.teilgedanken.stalltagebuch"
+
+# App display name
+app_name = "Wachtel-Stallbuch"
+
+# Minimum SDK version (API 28 = Android 9.0)
+min_sdk_version = 28
+
+# Target SDK version (API 34 = Android 14)
+target_sdk_version = 34
+
+# Compile SDK version
+compile_sdk_version = 34
+
+# App icon (optional, place in assets/)
+# icon = "assets/icon.png"
+
+[web.app]
+
+# HTML title tag content
+title = "stalltagebuch"
+
+# include `assets` in web platform
+[web.resource]
+
+# Additional CSS style files
+style = []
+
+# Additional JavaScript files
+script = []
+
+[web.resource.dev]
+
+# Javascript code file
+# serve: [dev-server] only
+script = []

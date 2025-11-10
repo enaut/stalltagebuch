@@ -1,0 +1,36 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Dioxus
+/dist
+/.dioxus
+
+# Android
+*.apk
+*.aab
+*.dex
+*.class
+local.properties
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
