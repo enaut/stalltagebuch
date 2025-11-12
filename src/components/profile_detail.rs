@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use dioxus_i18n::t;
 
 #[component]
-pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> Element {
+pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) -> Element {
     let mut profile = use_signal(|| None::<Quail>);
     let mut events = use_signal(|| Vec::<QuailEvent>::new());
     let mut error = use_signal(|| String::new());
@@ -18,31 +18,37 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
     let mut upload_error = use_signal(|| String::new());
 
     // Alle Bilder der Wachtel laden
+    let quail_id_for_photos = quail_id.clone();
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
-            if let Ok(photo_list) =
-                crate::services::photo_service::list_wachtel_photos(&conn, quail_id)
-            {
-                photos.set(photo_list);
+            if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_for_photos) {
+                if let Ok(photo_list) =
+                    crate::services::photo_service::list_quail_photos(&conn, &uuid)
+                {
+                    photos.set(photo_list);
+                }
             }
         }
     });
 
     // Profil und Events laden
+    let quail_id_for_profile = quail_id.clone();
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
-            match profile_service::get_profile(&conn, quail_id) {
-                Ok(p) => {
-                    profile.set(Some(p));
-                    error.set(String::new());
+            if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_for_profile) {
+                match profile_service::get_profile(&conn, &uuid) {
+                    Ok(p) => {
+                        profile.set(Some(p));
+                        error.set(String::new());
+                    }
+                    Err(e) => error.set(t!("error-load-failed", error: e.to_string())), // Failed to load
                 }
-                Err(e) => error.set(format!("{}: {}", t!("error-load-failed"), e)), // Failed to load
-            }
 
-            // Load events
-            match event_service::get_events_for_wachtel(&conn, quail_id) {
-                Ok(evts) => events.set(evts),
-                Err(e) => eprintln!("{}: {}", t!("error-load-events-failed"), e), // Failed to load events
+                // Load events
+                match event_service::get_events_for_quail(&conn, &uuid) {
+                    Ok(evts) => events.set(evts),
+                    Err(e) => eprintln!("{}: {}", t!("error-load-events-failed"), e), // Failed to load events
+                }
             }
         }
     });
@@ -54,7 +60,8 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                 button {
                     style: "padding: 8px 16px; background: #e0e0e0; color: #333; border-radius: 8px; font-size: 16px;",
                     onclick: move |_| on_navigate.call(Screen::ProfileList),
-                    "← " {t!("action-back")} // Back
+                    "← "
+                    {t!("action-back")}
                 }
                 h1 { style: "margin: 0; font-size: 26px; color: #0066cc; font-weight: 700;",
                     {t!("profile-detail-title")} // Profile
@@ -63,7 +70,8 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
 
             if !error().is_empty() {
                 div { style: "background: #fee; border: 1px solid #fcc; color: #c33; padding: 12px; margin-bottom: 16px; border-radius: 8px; font-size: 14px;",
-                    "⚠️ " {error}
+                    "⚠️ "
+                    {error}
                 }
             }
 
@@ -81,7 +89,11 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                                 }
                             },
                             {
-                                let profile_photo_opt = photos().iter().find(|ph| ph.is_profile).cloned();
+                                let profile_photo_opt = if let Some(ref profile_photo_uuid) = p.profile_photo {
+                                    photos().iter().find(|ph| &ph.uuid == profile_photo_uuid).cloned()
+                                } else {
+                                    None
+                                };
                                 if let Some(profile_photo) = profile_photo_opt {
                                     let path_to_use = profile_photo
                                         .thumbnail_path
@@ -139,10 +151,13 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                         button {
                             style: "position:absolute; bottom:12px; left:12px; padding:10px 14px; background:rgba(0,0,0,0.45); color:white; backdrop-filter:blur(4px); border-radius:8px; font-size:14px; display:flex; align-items:center; gap:6px; cursor:pointer; z-index:11;",
                             disabled: uploading(),
-                            onclick: move |e| {
-                                e.stop_propagation();
-                                uploading.set(true);
-                                upload_error.set(String::new());
+                            onclick: {
+                                let quail_id_for_gallery = quail_id.clone();
+                                move |e| {
+                                    e.stop_propagation();
+                                    let quail_id_clone = quail_id_for_gallery.clone();
+                                    uploading.set(true);
+                                    upload_error.set(String::new());
                                 spawn(async move {
                                     #[cfg(target_os = "android")]
                                     {
@@ -156,56 +171,66 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                                                                 &path_str,
                                                             )
                                                             .ok();
-                                                        let is_profile = first && photos().is_empty();
-                                                        match crate::services::photo_service::add_wachtel_photo(
-                                                            &conn,
-                                                            quail_id,
-                                                            path_str,
-                                                            thumbnail_opt,
-                                                            is_profile,
-                                                        ) {
-                                                            Ok(_) => {}
-                                                            Err(e) => {
-                                                                upload_error.set(format!("Fehler beim Speichern: {}", e));
-                                                                break;
+                                                        let _is_profile = first && photos().is_empty();
+                                                        if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
+                                                            match crate::services::photo_service::add_quail_photo(
+                                                                &conn,
+                                                                uuid,
+                                                                path_str,
+                                                                thumbnail_opt,
+                                                            ) {
+                                                                Ok(_) => {}
+                                                                Err(e) => {
+                                                                    upload_error.set(format!("Fehler beim Speichern: {}", e));
+                                                                    break;
+                                                                }
                                                             }
                                                         }
                                                         first = false;
                                                     }
-                                                    if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(
-                                                        &conn,
-                                                        quail_id,
-                                                    ) {
-                                                        photos.set(photo_list);
+                                                    if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
+                                                        if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
+                                                            &conn,
+                                                            &uuid,
+                                                        ) {
+                                                            photos.set(photo_list);
+                                                        }
                                                     }
                                                 }
                                             }
-                                            Err(e) => upload_error.set(format!("{}: {}", t!("error-selection-failed"), e)), // Selection failed
+                                            Err(e) => {
+                                                upload_error
+                                                    .set(format!("{}: {}", t!("error-selection-failed"), e))
+                                            }
                                         }
                                     }
                                     #[cfg(not(target_os = "android"))]
                                     {
-                                        upload_error
-                                            .set(t!("error-multiselect-android-only")); // Multi-select only available on Android
+                                        upload_error.set(t!("error-multiselect-android-only"));
                                     }
                                     uploading.set(false);
                                 });
+                                }
                             },
                             if uploading() {
                                 "⏳"
                             } else {
-                                "🖼️ " {t!("action-gallery")} // Gallery
+                                "🖼️ "
+                                {t!("action-gallery")}
                             }
                         }
                         // Kamera (Einzelfoto)
                         button {
                             style: "position:absolute; bottom:12px; right:12px; padding:10px 14px; background:rgba(0,0,0,0.45); color:white; backdrop-filter:blur(4px); border-radius:8px; font-size:14px; display:flex; align-items:center; gap:6px; cursor:pointer; z-index:11;",
                             disabled: uploading(),
-                            onclick: move |e| {
-                                e.stop_propagation();
-                                uploading.set(true);
-                                upload_error.set(String::new());
-                                spawn(async move {
+                            onclick: {
+                                let quail_id_for_camera = quail_id.clone();
+                                move |e| {
+                                    e.stop_propagation();
+                                    let quail_id_clone = quail_id_for_camera.clone();
+                                    uploading.set(true);
+                                    upload_error.set(String::new());
+                                    spawn(async move {
                                     #[cfg(target_os = "android")]
                                     {
                                         match crate::camera::capture_photo() {
@@ -216,42 +241,48 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                                                             &path_str,
                                                         )
                                                         .ok();
-                                                    let is_profile = photos().is_empty();
-                                                    match crate::services::photo_service::add_wachtel_photo(
-                                                        &conn,
-                                                        quail_id,
-                                                        path_str,
-                                                        thumbnail_opt,
-                                                        is_profile,
-                                                    ) {
-                                                        Ok(_) => {
-                                                            if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(
-                                                                &conn,
-                                                                quail_id,
-                                                            ) {
-                                                                photos.set(photo_list);
+                                                    if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
+                                                        match crate::services::photo_service::add_quail_photo(
+                                                            &conn,
+                                                            uuid,
+                                                            path_str,
+                                                            thumbnail_opt,
+                                                        ) {
+                                                            Ok(_) => {
+                                                                if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
+                                                                    &conn,
+                                                                    &uuid,
+                                                                ) {
+                                                                    photos.set(photo_list);
+                                                                }
                                                             }
-                                                        }
-                                                        Err(e) => {
-                                                            upload_error.set(format!("{}: {}", t!("error-save-failed"), e)) // Failed to save
+                                                            Err(e) => {
+                                                                upload_error
+                                                                    .set(format!("{}: {}", t!("error-save-failed"), e))
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
-                                            Err(e) => upload_error.set(format!("{}: {}", t!("error-capture-failed"), e)), // Capture failed
+                                            Err(e) => {
+                                                upload_error
+                                                    .set(format!("{}: {}", t!("error-capture-failed"), e))
+                                            }
                                         }
                                     }
                                     #[cfg(not(target_os = "android"))]
                                     {
-                                        upload_error.set(t!("error-camera-android-only")); // Camera only available on Android
+                                        upload_error.set(t!("error-camera-android-only"));
                                     }
                                     uploading.set(false);
                                 });
+                                }
                             },
                             if uploading() {
                                 "⏳"
                             } else {
-                                "📷 " {t!("action-photo")} // Photo
+                                "📷 "
+                                {t!("action-photo")}
                             }
                         }
                     }
@@ -259,7 +290,8 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                     // Upload Error anzeigen falls vorhanden
                     if !upload_error().is_empty() {
                         div { style: "padding: 12px; background: #ffe6e6; border-radius: 8px; color: #cc0000; font-size: 14px; margin-top: 12px;",
-                            "⚠️ " {upload_error}
+                            "⚠️ "
+                            {upload_error}
                         }
                     }
 
@@ -270,7 +302,7 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                         }
                         div { style: "display:flex; flex-wrap:wrap; gap:8px;",
                             span { style: "padding:6px 14px; background:#e8f4f8; border-radius:16px; font-size:13px; color:#0066cc;",
-                                "ID {p.id.unwrap_or(0)}"
+                                "ID {p.uuid.to_string().chars().take(8).collect::<String>()}"
                             }
                             span { style: "padding:6px 14px; background:#fff3e0; border-radius:16px; font-size:13px; color:#ff8c00;",
                                 "{p.gender.display_name()}"
@@ -280,39 +312,46 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                                 match latest_event.event_type {
                                     crate::models::EventType::Born => rsx! {
                                         span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
-                                            "🐣 " {t!("status-born")} // Born
+                                            "🐣 "
+                                            {t!("status-born")}
                                         }
                                     },
                                     crate::models::EventType::Alive => rsx! {
                                         span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
-                                            "✅ " {t!("status-alive")} // Alive
+                                            "✅ "
+                                            {t!("status-alive")}
                                         }
                                     },
                                     crate::models::EventType::Sick => rsx! {
                                         span { style: "padding:6px 14px; background:#ffe0e0; border-radius:16px; font-size:13px; color:#cc3333;",
-                                            "🤒 " {t!("status-sick")} // Sick
+                                            "🤒 "
+                                            {t!("status-sick")}
                                         }
                                     },
                                     crate::models::EventType::Healthy => rsx! {
                                         span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
-                                            "💪 " {t!("status-healthy")} // Healthy
+                                            "💪 "
+                                            {t!("status-healthy")}
                                         }
                                     },
                                     crate::models::EventType::MarkedForSlaughter => {
                                         rsx! {
                                             span { style: "padding:6px 14px; background:#fff3e0; border-radius:16px; font-size:13px; color:#ff8800;",
-                                                "🥩 " {t!("status-marked")} // Marked for slaughter
+                                                "🥩 "
+                                                {t!("status-marked")}
                                             }
                                         }
                                     }
                                     crate::models::EventType::Slaughtered => rsx! {
                                         span { style: "padding:6px 14px; background:#f0f0f0; border-radius:16px; font-size:13px; color:#666;",
-                                            "🥩 " {t!("status-slaughtered")} // Slaughtered
+                                            "🥩 "
+                                            {t!("status-slaughtered")}
                                         }
                                     },
                                     crate::models::EventType::Died => rsx! {
                                         span { style: "padding:6px 14px; background:#f0f0f0; border-radius:16px; font-size:13px; color:#666;",
-                                            "🪦 " {t!("status-died")} // Died
+                                            "🪦 "
+                                            {t!("status-died")}
                                         }
                                     },
                                 }
@@ -335,7 +374,8 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                     div { style: "margin-top:24px;",
                         div { style: "display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;",
                             h3 { style: "margin:0; font-size:18px; color:#333; font-weight:600;",
-                                "📅 " {t!("events-timeline-title")} // Events
+                                "📅 "
+                                {t!("events-timeline-title")}
                             }
                             button {
                                 style: "padding:8px 16px; background:#0066cc; color:white; border-radius:8px; font-size:14px; font-weight:500;",
@@ -343,12 +383,13 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                                     if let Some(p) = profile() {
                                         on_navigate
                                             .call(Screen::EventAdd {
-                                                quail_id: p.id.unwrap_or(0),
+                                                quail_id: p.uuid.to_string(),
                                                 quail_name: p.name.clone(),
                                             });
                                     }
                                 },
-                                "+ " {t!("action-add-event")} // Add event
+                                "+ "
+                                {t!("action-add-event")} // Add event
                             }
                         }
 
@@ -360,14 +401,15 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                             div { style: "display:flex; flex-direction:column; gap:12px;",
                                 for event in events() {
                                     div {
-                                        key: "{event.id.unwrap_or(0)}",
+                                        key: "{event.uuid}",
                                         style: "padding:14px; background:white; border:1px solid #e0e0e0; border-radius:8px; cursor:pointer;",
-                                        onclick: move |_| {
-                                            if let Some(eid) = event.id {
+                                        onclick: {
+                                            let quail_id_for_event = quail_id.clone();
+                                            move |_| {
                                                 on_navigate
                                                     .call(Screen::EventEdit {
-                                                        event_id: eid,
-                                                        quail_id,
+                                                        event_id: event.uuid.to_string(),
+                                                        quail_id: quail_id_for_event.clone(),
                                                     });
                                             }
                                         },
@@ -407,8 +449,12 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                     button {
                         class: "btn-primary",
                         style: "width:100%; padding:14px; font-size:16px; font-weight:600; margin-top:24px;",
-                        onclick: move |_| on_navigate.call(Screen::ProfileEdit(quail_id)),
-                        "✏️ " {t!("action-edit")} // Edit
+                        onclick: {
+                            let quail_id_for_edit = quail_id.clone();
+                            move |_| on_navigate.call(Screen::ProfileEdit(quail_id_for_edit.clone()))
+                        },
+                        "✏️ "
+                        {t!("action-edit")}
                     }
                 }
             } else {
@@ -433,7 +479,8 @@ pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> 
                         button {
                             style: "background:rgba(255,255,255,0.2); color:white; padding:8px 16px; border-radius:8px; font-size:16px;",
                             onclick: move |_| show_fullscreen.set(false),
-                            "✕ " {t!("action-close")} // Close
+                            "✕ "
+                            {t!("action-close")}
                         }
                     }
                     // Hauptbild

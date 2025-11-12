@@ -28,11 +28,11 @@ fn main() {
 pub enum Screen {
     Home,
     ProfileList,
-    ProfileDetail(i64),
-    ProfileEdit(i64),
+    ProfileDetail(String),
+    ProfileEdit(String),
     AddProfile,
-    EventAdd { quail_id: i64, quail_name: String },
-    EventEdit { event_id: i64, quail_id: i64 },
+    EventAdd { quail_id: String, quail_name: String },
+    EventEdit { event_id: String, quail_id: String },
     EggTracking(Option<String>), // Date in YYYY-MM-DD format
     EggHistory,
     Statistics,

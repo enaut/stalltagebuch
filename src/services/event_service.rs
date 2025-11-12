@@ -2,15 +2,16 @@ use crate::error::AppError;
 use crate::models::{EventType, QuailEvent};
 use chrono::NaiveDate;
 use rusqlite::{params, Connection, OptionalExtension};
+use uuid::Uuid;
 
 /// Creates a new event for a quail
 pub fn create_event(
     conn: &Connection,
-    quail_id: i64,
+    quail_id: Uuid,
     event_type: EventType,
     event_date: NaiveDate,
     notes: Option<String>,
-) -> Result<i64, AppError> {
+) -> Result<Uuid, AppError> {
     let mut event = QuailEvent::new(quail_id, event_type, event_date);
     event.notes = notes;
 
@@ -20,33 +21,33 @@ pub fn create_event(
         "INSERT INTO quail_events (uuid, quail_id, event_type, event_date, notes)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
-            event.uuid,
-            event.quail_id,
+            event.uuid.to_string(),
+            event.quail_id.to_string(),
             event.event_type.as_str(),
             event.event_date.to_string(),
             event.notes,
         ],
     )?;
 
-    let event_id = conn.last_insert_rowid();
-
-    Ok(event_id)
+    Ok(event.uuid)
 }
 
 /// Returns all events for a specific quail
-pub fn get_events_for_wachtel(
+pub fn get_events_for_quail(
     conn: &Connection,
-    quail_id: i64,
+    quail_uuid: &Uuid,
 ) -> Result<Vec<QuailEvent>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, quail_id, event_type, event_date, notes
+        "SELECT uuid, quail_id, event_type, event_date, notes
          FROM quail_events
          WHERE quail_id = ?1
-         ORDER BY event_date DESC, id DESC",
+         ORDER BY event_date DESC",
     )?;
 
     let events = stmt
-        .query_map(params![quail_id], |row| QuailEvent::try_from(row))?
+        .query_map(params![quail_uuid.to_string()], |row| {
+            QuailEvent::try_from(row)
+        })?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(events)
@@ -54,17 +55,22 @@ pub fn get_events_for_wachtel(
 
 /// Returns the latest event for a quail
 #[allow(dead_code)]
-pub fn get_latest_event(conn: &Connection, quail_id: i64) -> Result<Option<QuailEvent>, AppError> {
+pub fn get_latest_event(
+    conn: &Connection,
+    quail_uuid: &Uuid,
+) -> Result<Option<QuailEvent>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, quail_id, event_type, event_date, notes
+        "SELECT uuid, quail_id, event_type, event_date, notes
          FROM quail_events
          WHERE quail_id = ?1
-         ORDER BY event_date DESC, id DESC
+         ORDER BY event_date DESC
          LIMIT 1",
     )?;
 
     let event = stmt
-        .query_row(params![quail_id], |row| QuailEvent::try_from(row))
+        .query_row(params![quail_uuid.to_string()], |row| {
+            QuailEvent::try_from(row)
+        })
         .optional()?;
 
     Ok(event)
@@ -72,7 +78,7 @@ pub fn get_latest_event(conn: &Connection, quail_id: i64) -> Result<Option<Quail
 
 /// Returns the birth date of a quail (from the "born" event)
 #[allow(dead_code)]
-pub fn get_birth_date(conn: &Connection, quail_id: i64) -> Result<Option<NaiveDate>, AppError> {
+pub fn get_birth_date(conn: &Connection, quail_uuid: &Uuid) -> Result<Option<NaiveDate>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT event_date
          FROM quail_events
@@ -81,7 +87,7 @@ pub fn get_birth_date(conn: &Connection, quail_id: i64) -> Result<Option<NaiveDa
     )?;
 
     let date_str: Option<String> = stmt
-        .query_row(params![quail_id], |row| row.get(0))
+        .query_row(params![quail_uuid.to_string()], |row| row.get(0))
         .optional()?;
 
     if let Some(date_str) = &date_str {
@@ -96,35 +102,45 @@ pub fn get_birth_date(conn: &Connection, quail_id: i64) -> Result<Option<NaiveDa
 #[allow(dead_code)]
 pub fn update_event(
     conn: &Connection,
-    event_id: i64,
+    event_uuid: &Uuid,
     notes: Option<String>,
 ) -> Result<(), AppError> {
     conn.execute(
         "UPDATE quail_events 
          SET notes = ?1
-         WHERE id = ?2",
-        params![notes, event_id],
+         WHERE uuid = ?2",
+        params![notes, event_uuid.to_string()],
     )?;
 
     Ok(())
 }
 
 /// Deletes an event
-pub fn delete_event(conn: &Connection, event_id: i64) -> Result<(), AppError> {
-    let mut stmt = conn.prepare("SELECT quail_id, event_type FROM quail_events WHERE id = ?1")?;
-    let (_quail_id, _event_type_str): (i64, String) =
-        stmt.query_row(params![event_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
-    conn.execute("DELETE FROM quail_events WHERE id = ?1", params![event_id])?;
+pub fn delete_event(conn: &Connection, event_uuid: &Uuid) -> Result<(), AppError> {
+    let mut stmt = conn.prepare("SELECT quail_id, event_type FROM quail_events WHERE uuid = ?1")?;
+    let (_quail_id, _event_type_str): (String, String) = stmt
+        .query_row(params![event_uuid.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+    conn.execute(
+        "DELETE FROM quail_events WHERE uuid = ?1",
+        params![event_uuid.to_string()],
+    )?;
     Ok(())
 }
 
-/// Gets a single event by ID
-pub fn get_event_by_id(conn: &Connection, event_id: i64) -> Result<Option<QuailEvent>, AppError> {
+/// Gets a single event by UUID
+pub fn get_event_by_id(
+    conn: &Connection,
+    event_uuid: &Uuid,
+) -> Result<Option<QuailEvent>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, quail_id, event_type, event_date, notes FROM quail_events WHERE id = ?1",
+        "SELECT uuid, quail_id, event_type, event_date, notes FROM quail_events WHERE uuid = ?1",
     )?;
     let evt = stmt
-        .query_row(params![event_id], |row| QuailEvent::try_from(row))
+        .query_row(params![event_uuid.to_string()], |row| {
+            QuailEvent::try_from(row)
+        })
         .optional()?;
     Ok(evt)
 }
@@ -132,16 +148,15 @@ pub fn get_event_by_id(conn: &Connection, event_id: i64) -> Result<Option<QuailE
 /// Full update of an event (type, date, notes)
 pub fn update_event_full(
     conn: &Connection,
-    event_id: i64,
+    event_uuid: &Uuid,
     event_type: EventType,
     event_date: NaiveDate,
     notes: Option<String>,
 ) -> Result<(), AppError> {
-    let existing = get_event_by_id(conn, event_id)?
+    let existing = get_event_by_id(conn, event_uuid)?
         .ok_or_else(|| AppError::NotFound("Event not found".to_string()))?;
     let candidate = QuailEvent {
-        id: Some(event_id),
-        uuid: existing.uuid.clone(),
+        uuid: existing.uuid,
         quail_id: existing.quail_id,
         event_type: event_type.clone(),
         event_date,
@@ -149,8 +164,13 @@ pub fn update_event_full(
     };
     candidate.validate()?;
     conn.execute(
-        "UPDATE quail_events SET event_type = ?1, event_date = ?2, notes = ?3 WHERE id = ?4",
-        params![event_type.as_str(), event_date.to_string(), notes, event_id],
+        "UPDATE quail_events SET event_type = ?1, event_date = ?2, notes = ?3 WHERE uuid = ?4",
+        params![
+            event_type.as_str(),
+            event_date.to_string(),
+            notes,
+            event_uuid.to_string()
+        ],
     )?;
     Ok(())
 }

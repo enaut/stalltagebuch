@@ -99,9 +99,7 @@ pub fn ProfileListScreen(on_navigate: EventHandler<Screen>) -> Element {
                         ProfileCard {
                             profile: profile.clone(),
                             on_click: move |_| {
-                                if let Some(id) = profile.id {
-                                    on_navigate.call(Screen::ProfileDetail(id));
-                                }
+                                on_navigate.call(Screen::ProfileDetail(profile.uuid.to_string()));
                             },
                         }
                     }
@@ -113,12 +111,12 @@ pub fn ProfileListScreen(on_navigate: EventHandler<Screen>) -> Element {
 
 #[component]
 pub fn ProfileCard(profile: Quail, on_click: EventHandler<()>) -> Element {
-    let profile_id = profile.id.unwrap_or(0);
+    let profile_uuid = profile.uuid;
 
     // Lade Profilfoto über photo_service
     let image_data = use_resource(move || async move {
         if let Ok(conn) = database::init_database() {
-            if let Ok(Some(photo)) = services::photo_service::get_profile_photo(&conn, profile_id) {
+            if let Ok(Some(photo)) = services::photo_service::get_profile_photo(&conn, &profile_uuid) {
                 let path = photo.thumbnail_path.unwrap_or(photo.path);
                 return image_processing::image_path_to_data_url(&path).ok();
             }
@@ -128,10 +126,11 @@ pub fn ProfileCard(profile: Quail, on_click: EventHandler<()>) -> Element {
 
     // Load current status from events
     let mut current_status = use_signal(|| None::<crate::models::EventType>);
+    let profile_uuid_for_effect = profile.uuid;
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
             if let Ok(status) =
-                services::profile_service::get_profile_current_status(&conn, profile_id)
+                services::profile_service::get_profile_current_status(&conn, &profile_uuid_for_effect)
             {
                 current_status.set(status);
             }

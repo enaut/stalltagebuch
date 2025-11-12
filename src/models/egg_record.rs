@@ -3,12 +3,11 @@ use chrono::NaiveDate;
 use rusqlite::types::Type;
 use rusqlite::Row;
 use serde::{Deserialize, Serialize};
-use uuid;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EggRecord {
-    pub id: Option<i64>,
-    pub uuid: String,
+    pub uuid: Uuid,
     pub record_date: NaiveDate,
     pub total_eggs: i32,
     pub notes: Option<String>,
@@ -19,8 +18,7 @@ impl EggRecord {
     #[allow(dead_code)]
     pub fn new(record_date: NaiveDate, total_eggs: i32) -> Self {
         Self {
-            id: None,
-            uuid: uuid::Uuid::new_v4().to_string(),
+            uuid: Uuid::new_v4(),
             record_date,
             total_eggs,
             notes: None,
@@ -60,17 +58,16 @@ impl<'r> TryFrom<&Row<'r>> for EggRecord {
     type Error = rusqlite::Error;
 
     fn try_from(row: &Row<'r>) -> Result<Self, Self::Error> {
-        let id: i64 = row.get(0)?;
-        let uuid: String = row.get(1)?;
-        let date_str: String = row.get(2)?;
-        let total_eggs: i32 = row.get(3)?;
-        let notes: Option<String> = row.get(4)?;
+        let uuid_str: String = row.get(0)?;
+        let uuid = Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let date_str: String = row.get(1)?;
+        let total_eggs: i32 = row.get(2)?;
+        let notes: Option<String> = row.get(3)?;
 
         let record_date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, Type::Text, Box::new(e)))?;
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(e)))?;
 
         Ok(EggRecord {
-            id: Some(id),
             uuid,
             record_date,
             total_eggs,

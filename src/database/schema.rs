@@ -33,16 +33,53 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
 
 /// Create the complete schema (version 1) - clean slate with English naming
 fn create_schema(conn: &Connection) -> Result<()> {
+    // Table: photos (Photo storage with optional linking to quails OR events)
+    // Created first since quails will reference it
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS photos (
+            uuid TEXT PRIMARY KEY,
+            quail_id TEXT,
+            event_id TEXT,
+            path TEXT NOT NULL,
+            thumbnail_path TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK( (quail_id IS NOT NULL AND event_id IS NOT NULL) OR (quail_id IS NULL OR event_id IS NULL) )
+        )",
+        [],
+    )?;
+
+    // Indexes for photos
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_quail ON photos(quail_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_event ON photos(event_id)",
+        [],
+    )?;
+
+    // Trigger for updated_at in photos
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS update_photos_timestamp 
+         AFTER UPDATE ON photos
+         BEGIN
+            UPDATE photos SET updated_at = CURRENT_TIMESTAMP WHERE uuid = NEW.uuid;
+         END",
+        [],
+    )?;
+
     // Table: quails (Quail profiles)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS quails (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT NOT NULL UNIQUE,
+            uuid TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             gender TEXT CHECK(gender IN ('male', 'female', 'unknown')) NOT NULL DEFAULT 'unknown',
             ring_color TEXT,
+            profile_photo TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_photo) REFERENCES photos(uuid) ON DELETE SET NULL
         )",
         [],
     )?;
@@ -52,17 +89,13 @@ fn create_schema(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_quails_name ON quails(name)",
         [],
     )?;
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_quails_uuid ON quails(uuid)",
-        [],
-    )?;
 
     // Trigger for updated_at in quails
     conn.execute(
         "CREATE TRIGGER IF NOT EXISTS update_quails_timestamp 
          AFTER UPDATE ON quails
          BEGIN
-            UPDATE quails SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+            UPDATE quails SET updated_at = CURRENT_TIMESTAMP WHERE uuid = NEW.uuid;
          END",
         [],
     )?;
@@ -70,15 +103,14 @@ fn create_schema(conn: &Connection) -> Result<()> {
     // Table: quail_events (Life events for quails)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS quail_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT NOT NULL UNIQUE,
-            quail_id INTEGER NOT NULL,
+            uuid TEXT PRIMARY KEY,
+            quail_id TEXT NOT NULL,
             event_type TEXT CHECK(event_type IN ('born', 'alive', 'sick', 'healthy', 'marked_for_slaughter', 'slaughtered', 'died')) NOT NULL,
             event_date TEXT NOT NULL,
             notes TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (quail_id) REFERENCES quails(id) ON DELETE CASCADE
+            FOREIGN KEY (quail_id) REFERENCES quails(uuid) ON DELETE CASCADE
         )",
         [],
     )?;
@@ -96,60 +128,36 @@ fn create_schema(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_quail_events_type ON quail_events(event_type)",
         [],
     )?;
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_quail_events_uuid ON quail_events(uuid)",
-        [],
-    )?;
 
     // Trigger for updated_at in quail_events
     conn.execute(
         "CREATE TRIGGER IF NOT EXISTS update_quail_events_timestamp 
          AFTER UPDATE ON quail_events
          BEGIN
-            UPDATE quail_events SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+            UPDATE quail_events SET updated_at = CURRENT_TIMESTAMP WHERE uuid = NEW.uuid;
          END",
         [],
     )?;
 
-    // Table: photos (Photo storage with optional linking to quails OR events)
+    // Add foreign key constraints to photos after all tables are created
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS photos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT NOT NULL UNIQUE,
-            quail_id INTEGER,
-            event_id INTEGER,
-            path TEXT NOT NULL,
-            thumbnail_path TEXT,
-            is_profile INTEGER NOT NULL DEFAULT 0 CHECK(is_profile IN (0,1)),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (quail_id) REFERENCES quails(id) ON DELETE CASCADE,
-            FOREIGN KEY (event_id) REFERENCES quail_events(id) ON DELETE CASCADE,
-            CHECK( (quail_id IS NOT NULL AND event_id IS NULL) OR (quail_id IS NULL AND event_id IS NOT NULL) )
-        )",
-        [],
-    )?;
-
-    // Indexes for photos
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_photos_quail ON photos(quail_id)",
-        [],
-    )?;
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_photos_event ON photos(event_id)",
-        [],
-    )?;
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_photos_uuid ON photos(uuid)",
-        [],
-    )?;
-
-    // Trigger for updated_at in photos
-    conn.execute(
-        "CREATE TRIGGER IF NOT EXISTS update_photos_timestamp 
-         AFTER UPDATE ON photos
+        "CREATE TRIGGER IF NOT EXISTS photos_quail_fk_check
+         BEFORE INSERT ON photos
          BEGIN
-            UPDATE photos SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+            SELECT RAISE(ABORT, 'Foreign key violation: quail_id does not exist')
+            WHERE NEW.quail_id IS NOT NULL 
+            AND NOT EXISTS (SELECT 1 FROM quails WHERE uuid = NEW.quail_id);
+         END",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS photos_event_fk_check
+         BEFORE INSERT ON photos
+         BEGIN
+            SELECT RAISE(ABORT, 'Foreign key violation: event_id does not exist')
+            WHERE NEW.event_id IS NOT NULL 
+            AND NOT EXISTS (SELECT 1 FROM quail_events WHERE uuid = NEW.event_id);
          END",
         [],
     )?;
@@ -157,8 +165,7 @@ fn create_schema(conn: &Connection) -> Result<()> {
     // Table: egg_records (Daily egg production tracking)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS egg_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT NOT NULL UNIQUE,
+            uuid TEXT PRIMARY KEY,
             record_date TEXT NOT NULL UNIQUE,
             total_eggs INTEGER NOT NULL DEFAULT 0 CHECK(total_eggs >= 0),
             notes TEXT,
@@ -173,17 +180,13 @@ fn create_schema(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_egg_records_date ON egg_records(record_date DESC)",
         [],
     )?;
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_egg_records_uuid ON egg_records(uuid)",
-        [],
-    )?;
 
     // Trigger for updated_at in egg_records
     conn.execute(
         "CREATE TRIGGER IF NOT EXISTS update_egg_records_timestamp 
          AFTER UPDATE ON egg_records
          BEGIN
-            UPDATE egg_records SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+            UPDATE egg_records SET updated_at = CURRENT_TIMESTAMP WHERE uuid = NEW.uuid;
          END",
         [],
     )?;
@@ -218,13 +221,13 @@ fn create_schema(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sync_queue (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            photo_id INTEGER NOT NULL,
+            photo_id TEXT NOT NULL,
             status TEXT CHECK(status IN ('pending', 'uploading', 'completed', 'failed')) NOT NULL DEFAULT 'pending',
             retry_count INTEGER NOT NULL DEFAULT 0,
             last_error TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+            FOREIGN KEY (photo_id) REFERENCES photos(uuid) ON DELETE CASCADE
         )",
         [],
     )?;

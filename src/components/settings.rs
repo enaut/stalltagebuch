@@ -591,7 +591,7 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                         }
                                         Err(e) => {
                                             status_message
-                                                .set(format!("\u{274c} {}: {}", t!("error-database"), e));
+                                                .set(format!("\u{274c} {}", t!("error-database", error: e.to_string())));
                                         }
                                     }
                                 });

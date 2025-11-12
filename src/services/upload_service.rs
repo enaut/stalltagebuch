@@ -31,12 +31,12 @@ fn get_relative_photo_path(conn: &Connection, photo: &Photo) -> Result<String, A
         .to_string();
 
     // Event-Foto?
-    if let Some(event_id) = photo.event_id {
+    if let Some(ref event_id) = photo.event_id {
         let (event_uuid, quail_uuid): (String, String) = conn.query_row(
             "SELECT e.uuid, w.uuid FROM quail_events e 
-             JOIN quails w ON e.quail_id = w.id 
-             WHERE e.id = ?1",
-            [event_id],
+             JOIN quails w ON e.quail_id = w.uuid 
+             WHERE e.uuid = ?1",
+            [&event_id.to_string()],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         return Ok(format!(
@@ -46,13 +46,8 @@ fn get_relative_photo_path(conn: &Connection, photo: &Photo) -> Result<String, A
     }
 
     // Quail photo (incl. profile photo - all in photos/ folder)
-    if let Some(quail_id) = photo.quail_id {
-        let quail_uuid: String =
-            conn.query_row("SELECT uuid FROM quails WHERE id = ?1", [quail_id], |row| {
-                row.get(0)
-            })?;
-
-        return Ok(format!("quails/{}/photos/{}", quail_uuid, filename));
+    if let Some(ref quail_id) = photo.quail_id {
+        return Ok(format!("quails/{}/photos/{}", quail_id, filename));
     }
 
     // Orphaned photo
@@ -70,58 +65,44 @@ pub fn create_photo_metadata(
     let relative_path = get_relative_photo_path(conn, photo)?;
 
     // Get quail UUID and event UUID if available
-    let (quail_uuid, event_uuid, notes) = if let Some(event_id) = photo.event_id {
+    let (quail_uuid, event_uuid, notes) = if let Some(ref event_id) = photo.event_id {
         let result: Result<(String, String, Option<String>), _> = conn.query_row(
             "SELECT w.uuid, e.uuid, e.notes FROM quail_events e 
-             JOIN quails w ON e.quail_id = w.id 
-             WHERE e.id = ?1",
-            [event_id],
+             JOIN quails w ON e.quail_id = w.uuid 
+             WHERE e.uuid = ?1",
+            [&event_id.to_string()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         );
         result
             .map(|(w, e, n)| (Some(w), Some(e), n))
             .unwrap_or((None, None, None))
-    } else if let Some(quail_id) = photo.quail_id {
-        let quail_uuid: Option<String> = conn
-            .query_row("SELECT uuid FROM quails WHERE id = ?1", [quail_id], |row| {
-                row.get(0)
-            })
-            .ok();
-        (quail_uuid, None, None)
+    } else if let Some(ref quail_id) = photo.quail_id {
+        (Some(quail_id.to_string()), None, None)
     } else {
         (None, None, None)
     };
 
     Ok(PhotoMetadata {
-        photo_id: photo.uuid.clone(),
-        quail_id: photo.quail_id,
+        photo_id: photo.uuid.to_string(),
         quail_uuid,
-        event_id: photo.event_id,
         event_uuid,
         notes,
         device_id,
         timestamp: chrono::Utc::now().to_rfc3339(),
         checksum,
-        is_profile: photo.is_profile,
         relative_path,
     })
 }
 
 /// Creates TOML metadata for a quail
-pub fn create_quail_metadata(conn: &Connection, quail: &Quail) -> Result<QuailMetadata, AppError> {
+pub fn create_quail_metadata(_conn: &Connection, quail: &Quail) -> Result<QuailMetadata, AppError> {
     let device_id = get_device_id();
 
     // Check if profile photo exists
-    let has_profile_photo: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM photos WHERE quail_id = ?1 AND is_profile = 1",
-            [quail.id],
-            |row| row.get(0),
-        )
-        .unwrap_or(false);
+    let has_profile_photo: bool = quail.profile_photo.is_some();
 
     Ok(QuailMetadata {
-        uuid: quail.uuid.clone(),
+        uuid: quail.uuid.to_string(),
         name: quail.name.clone(),
         gender: quail.gender.as_str().to_string(),
         ring_color: quail.ring_color.as_ref().map(|r| r.as_str().to_string()),
@@ -134,20 +115,15 @@ pub fn create_quail_metadata(conn: &Connection, quail: &Quail) -> Result<QuailMe
 
 /// Creates TOML metadata for an event
 pub fn create_event_metadata(
-    conn: &Connection,
+    _conn: &Connection,
     event: &QuailEvent,
 ) -> Result<EventMetadata, AppError> {
     let device_id = get_device_id();
 
-    // Get quail UUID
-    let quail_uuid: String = conn.query_row(
-        "SELECT uuid FROM quails WHERE id = ?1",
-        [event.quail_id],
-        |row| row.get(0),
-    )?;
+    let quail_uuid = event.quail_id.to_string();
 
     Ok(EventMetadata {
-        uuid: event.uuid.clone(),
+        uuid: event.uuid.to_string(),
         quail_uuid,
         event_type: event.event_type.as_str().to_string(),
         event_date: event.event_date.format("%Y-%m-%d").to_string(),
@@ -160,26 +136,26 @@ pub fn create_event_metadata(
 /// Lists all photos that have not been synchronized yet
 pub fn list_pending_photos(conn: &Connection) -> Result<Vec<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT p.id, p.uuid, p.quail_id, p.event_id, p.path, p.thumbnail_path, p.is_profile
+        "SELECT p.uuid, p.quail_id, p.event_id, p.path, p.thumbnail_path
          FROM photos p
-         LEFT JOIN sync_queue sq ON p.uuid = sq.photo_uuid
-         WHERE sq.photo_uuid IS NULL OR sq.status IN ('pending', 'failed')
-         ORDER BY p.id",
+         LEFT JOIN sync_queue sq ON p.uuid = sq.photo_id
+         WHERE sq.photo_id IS NULL OR sq.status IN ('pending', 'failed')",
     )?;
 
     let rows = stmt.query_map([], |row| {
-        let relative_path: String = row.get(4)?;
-        let relative_thumb: Option<String> = row.get(5)?;
+        let uuid_str: String = row.get(0)?;
+        let quail_id_str: Option<String> = row.get(1)?;
+        let event_id_str: Option<String> = row.get(2)?;
+        let relative_path: String = row.get(3)?;
+        let relative_thumb: Option<String> = row.get(4)?;
 
         Ok(Photo {
-            id: row.get(0)?,
-            uuid: row.get(1)?,
-            quail_id: row.get(2)?,
-            event_id: row.get(3)?,
+            uuid: uuid::Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+            quail_id: quail_id_str.and_then(|s| uuid::Uuid::parse_str(&s).ok()),
+            event_id: event_id_str.and_then(|s| uuid::Uuid::parse_str(&s).ok()),
             path: crate::services::photo_service::get_absolute_photo_path(&relative_path),
             thumbnail_path: relative_thumb
                 .map(|t| crate::services::photo_service::get_absolute_photo_path(&t)),
-            is_profile: matches!(row.get::<_, i64>(6)?, 1),
         })
     })?;
 
@@ -187,10 +163,10 @@ pub fn list_pending_photos(conn: &Connection) -> Result<Vec<Photo>, AppError> {
 }
 
 /// Adds a photo to the sync queue
-pub fn add_to_sync_queue(conn: &Connection, photo_uuid: &str) -> Result<(), AppError> {
+pub fn add_to_sync_queue(conn: &Connection, photo_uuid: &uuid::Uuid) -> Result<(), AppError> {
     conn.execute(
         "INSERT OR IGNORE INTO sync_queue (photo_uuid, status) VALUES (?1, 'pending')",
-        [photo_uuid],
+        [&photo_uuid.to_string()],
     )?;
     Ok(())
 }
@@ -198,7 +174,7 @@ pub fn add_to_sync_queue(conn: &Connection, photo_uuid: &str) -> Result<(), AppE
 /// Updates the status of a photo in the sync queue
 pub fn update_sync_status(
     conn: &Connection,
-    photo_uuid: &str,
+    photo_uuid: &uuid::Uuid,
     status: &str,
     error_message: Option<&str>,
 ) -> Result<(), AppError> {
@@ -209,7 +185,7 @@ pub fn update_sync_status(
              retry_count = retry_count + 1,
              error_message = ?2
          WHERE photo_uuid = ?3",
-        rusqlite::params![status, error_message, photo_uuid],
+        rusqlite::params![status, error_message, photo_uuid.to_string()],
     )?;
     Ok(())
 }
@@ -381,7 +357,7 @@ pub async fn sync_quail(
     let quail_dir = format!(
         "{}/quails/{}",
         remote_path.trim_end_matches('/'),
-        quail.uuid
+        quail.uuid.to_string()
     );
     let _ = client
         .mkcol(&format!("{}/quails", remote_path.trim_end_matches('/')))
@@ -431,11 +407,7 @@ pub async fn sync_event(
         .map_err(|e| AppError::Other(format!("TOML Serialisierung fehlgeschlagen: {}", e)))?;
 
     // Hole Wachtel-UUID
-    let quail_uuid: String = conn.query_row(
-        "SELECT uuid FROM quails WHERE id = ?1",
-        [event.quail_id],
-        |row| row.get(0),
-    )?;
+    let quail_uuid = event.quail_id.to_string();
 
     // Erstelle Ordnerstruktur
     let event_dir = format!(
@@ -471,17 +443,19 @@ pub async fn sync_all_quails(conn: &Connection) -> Result<usize, AppError> {
     }
 
     // Hole alle Wachtels
-    let mut stmt = conn.prepare("SELECT id, uuid, name, gender, ring_color FROM quails")?;
+    let mut stmt = conn.prepare("SELECT uuid, name, gender, ring_color, profile_photo FROM quails")?;
     let quails: Vec<Quail> = stmt
         .query_map([], |row| {
+            let uuid_str: String = row.get(0)?;
+            let profile_photo_str: Option<String> = row.get(4)?;
             Ok(Quail {
-                id: row.get(0)?,
-                uuid: row.get(1)?,
-                name: row.get(2)?,
-                gender: crate::models::Gender::from_str(&row.get::<_, String>(3)?),
+                uuid: uuid::Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                name: row.get(1)?,
+                gender: crate::models::Gender::from_str(&row.get::<_, String>(2)?),
                 ring_color: row
-                    .get::<_, Option<String>>(4)?
+                    .get::<_, Option<String>>(3)?
                     .map(|s| crate::models::RingColor::from_str(&s)),
+                profile_photo: profile_photo_str.and_then(|s| uuid::Uuid::parse_str(&s).ok()),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -490,7 +464,7 @@ pub async fn sync_all_quails(conn: &Connection) -> Result<usize, AppError> {
     let mut synced_count = 0;
 
     for quail in quails {
-        eprintln!("Syncing quail: uuid={}, name={}", quail.uuid, quail.name);
+        eprintln!("Syncing quail: uuid={}, name={}", quail.uuid.to_string(), quail.name);
         match sync_quail(
             conn,
             &quail,
@@ -530,26 +504,27 @@ pub async fn sync_all_events(conn: &Connection) -> Result<usize, AppError> {
 
     // Hole alle Events
     let mut stmt =
-        conn.prepare("SELECT id, uuid, quail_id, event_type, event_date, notes FROM quail_events")?;
+        conn.prepare("SELECT uuid, quail_id, event_type, event_date, notes FROM quail_events")?;
     let events: Vec<QuailEvent> = stmt
         .query_map([], |row| {
-            let event_date_str: String = row.get(4)?;
+            let uuid_str: String = row.get(0)?;
+            let quail_id_str: String = row.get(1)?;
+            let event_date_str: String = row.get(3)?;
             let event_date = chrono::NaiveDate::parse_from_str(&event_date_str, "%Y-%m-%d")
                 .map_err(|e| {
                     rusqlite::Error::FromSqlConversionFailure(
-                        4,
+                        3,
                         rusqlite::types::Type::Text,
                         Box::new(e),
                     )
                 })?;
 
             Ok(QuailEvent {
-                id: row.get(0)?,
-                uuid: row.get(1)?,
-                quail_id: row.get(2)?,
-                event_type: crate::models::EventType::from_str(&row.get::<_, String>(3)?),
+                uuid: uuid::Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                quail_id: uuid::Uuid::parse_str(&quail_id_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                event_type: crate::models::EventType::from_str(&row.get::<_, String>(2)?),
                 event_date,
-                notes: row.get(5)?,
+                notes: row.get(4)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -621,10 +596,10 @@ pub async fn sync_all_photos(conn: &Connection) -> Result<usize, AppError> {
     let mut uploaded_count = 0;
 
     for photo in pending_photos {
-        eprintln!("Processing photo: uuid={}, path={}", photo.uuid, photo.path);
+        eprintln!("Processing photo: uuid={}, path={}", photo.uuid.to_string(), photo.path);
 
         // Überspringe wenn bereits remote vorhanden
-        if remote_uuids.contains(&photo.uuid) {
+        if remote_uuids.contains(&photo.uuid.to_string()) {
             eprintln!("Photo already exists remotely, marking as uploaded");
             // Markiere als uploaded
             update_sync_status(conn, &photo.uuid, "uploaded", None)?;
@@ -683,7 +658,7 @@ pub fn create_egg_record_metadata(
     let device_id = get_device_id();
 
     Ok(crate::models::EggRecordMetadata {
-        uuid: egg_record.uuid.clone(),
+        uuid: egg_record.uuid.to_string(),
         record_date: egg_record.record_date.format("%Y-%m-%d").to_string(),
         total_eggs: egg_record.total_eggs,
         notes: egg_record.notes.clone(),
@@ -695,7 +670,7 @@ pub fn create_egg_record_metadata(
 
 /// Synchronizes an egg record
 pub async fn sync_egg_record(
-    conn: &Connection,
+    _conn: &Connection,
     egg_record: &crate::models::EggRecord,
     created_at: String,
     updated_at: String,
@@ -759,22 +734,21 @@ pub async fn sync_all_egg_records(conn: &Connection) -> Result<usize, AppError> 
 
     // Get all egg records
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, record_date, total_eggs, notes, created_at, updated_at FROM egg_records",
+        "SELECT uuid, record_date, total_eggs, notes, created_at, updated_at FROM egg_records",
     )?;
     let egg_records: Vec<(crate::models::EggRecord, String, String)> = stmt
         .query_map([], |row| {
-            let id: i64 = row.get(0)?;
-            let uuid: String = row.get(1)?;
-            let date_str: String = row.get(2)?;
-            let total_eggs: i32 = row.get(3)?;
-            let notes: Option<String> = row.get(4)?;
-            let created_at: String = row.get(5)?;
-            let updated_at: String = row.get(6)?;
+            let uuid_str: String = row.get(0)?;
+            let date_str: String = row.get(1)?;
+            let total_eggs: i32 = row.get(2)?;
+            let notes: Option<String> = row.get(3)?;
+            let created_at: String = row.get(4)?;
+            let updated_at: String = row.get(5)?;
 
             let record_date =
                 chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d").map_err(|e| {
                     rusqlite::Error::FromSqlConversionFailure(
-                        2,
+                        1,
                         rusqlite::types::Type::Text,
                         Box::new(e),
                     )
@@ -782,8 +756,7 @@ pub async fn sync_all_egg_records(conn: &Connection) -> Result<usize, AppError> 
 
             Ok((
                 crate::models::EggRecord {
-                    id: Some(id),
-                    uuid,
+                    uuid: uuid::Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
                     record_date,
                     total_eggs,
                     notes,
@@ -810,7 +783,7 @@ pub async fn sync_all_egg_records(conn: &Connection) -> Result<usize, AppError> 
         .await
         {
             Ok(_) => {
-                eprintln!("Egg record sync successful: {}", egg_record.uuid);
+                eprintln!("Egg record sync successful: {}", egg_record.uuid.to_string());
                 synced_count += 1;
             }
             Err(e) => {

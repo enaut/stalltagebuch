@@ -6,11 +6,12 @@ use crate::{
 };
 use chrono::NaiveDate;
 use dioxus::prelude::*;
+use dioxus_i18n::t;
 
 #[component]
 pub fn EventEditScreen(
-    event_id: i64,
-    quail_id: i64,
+    event_id: String,
+    quail_id: String,
     on_navigate: EventHandler<Screen>,
 ) -> Element {
     let mut event = use_signal(|| None::<QuailEvent>);
@@ -28,67 +29,78 @@ pub fn EventEditScreen(
     let mut uploading = use_signal(|| false);
 
     // Load event + photos
+    let event_id_for_load = event_id.clone();
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
-            match event_service::get_event_by_id(&conn, event_id) {
-                Ok(Some(e)) => {
-                    event.set(Some(e.clone()));
-                    event_type.set(e.event_type.clone());
-                    event_date_str.set(e.event_date.format("%Y-%m-%d").to_string());
-                    notes.set(e.notes.unwrap_or_default());
+            if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_for_load) {
+                match event_service::get_event_by_id(&conn, &e_uuid) {
+                    Ok(Some(e)) => {
+                        event.set(Some(e.clone()));
+                        event_type.set(e.event_type.clone());
+                        event_date_str.set(e.event_date.format("%Y-%m-%d").to_string());
+                        notes.set(e.notes.unwrap_or_default());
+                    }
+                    Ok(None) => error.set(t!("event-not-found")),
+                    Err(e) => error.set(t!("error-loading", error: e.to_string())),
                 }
-                Ok(None) => error.set("Ereignis nicht gefunden".to_string()),
-                Err(e) => error.set(format!("Fehler beim Laden: {}", e)),
-            }
-            match photo_service::list_event_photos(&conn, event_id) {
-                Ok(list) => photos.set(list),
-                Err(e) => eprintln!("Fehler beim Laden der Event-Fotos: {}", e),
+                match photo_service::list_event_photos(&conn, &e_uuid) {
+                    Ok(list) => photos.set(list),
+                    Err(e) => eprintln!("Fehler beim Laden der Event-Fotos: {}", e),
+                }
             }
         }
     });
 
     // Save handler
+    let event_id_for_save = event_id.clone();
+    let quail_id_for_save = quail_id.clone();
     let mut handle_save = move || {
         if event_date_str().is_empty() {
-            error.set("Datum darf nicht leer sein".to_string());
+            error.set(t!("error-empty-date"));
             return;
         }
         let parsed_date = match NaiveDate::parse_from_str(&event_date_str(), "%Y-%m-%d") {
             Ok(d) => d,
             Err(_) => {
-                error.set("Ungültiges Datum".to_string());
+                error.set(t!("error-invalid-date"));
                 return;
             }
         };
         if let Ok(conn) = database::init_database() {
-            match event_service::update_event_full(
-                &conn,
-                event_id,
-                event_type(),
-                parsed_date,
-                if notes().is_empty() {
-                    None
-                } else {
-                    Some(notes())
-                },
-            ) {
-                Ok(_) => {
-                    success.set(true);
-                    on_navigate.call(Screen::ProfileDetail(quail_id));
+            if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_for_save) {
+                match event_service::update_event_full(
+                    &conn,
+                    &e_uuid,
+                    event_type(),
+                    parsed_date,
+                    if notes().is_empty() {
+                        None
+                    } else {
+                        Some(notes())
+                    },
+                ) {
+                    Ok(_) => {
+                        success.set(true);
+                        on_navigate.call(Screen::ProfileDetail(quail_id_for_save.clone()));
+                    }
+                    Err(e) => error.set(t!("error-save", error: e.to_string())),
                 }
-                Err(e) => error.set(format!("Speicherfehler: {}", e)),
             }
         } else {
-            error.set("DB nicht verfügbar".to_string());
+            error.set(t!("error-db-unavailable"));
         }
     };
 
     // Delete handler
+    let event_id_for_delete = event_id.clone();
+    let quail_id_for_delete = quail_id.clone();
     let mut handle_delete = move || {
         if let Ok(conn) = database::init_database() {
-            match event_service::delete_event(&conn, event_id) {
-                Ok(_) => on_navigate.call(Screen::ProfileDetail(quail_id)),
-                Err(e) => error.set(format!("Löschen fehlgeschlagen: {}", e)),
+            if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_for_delete) {
+                match event_service::delete_event(&conn, &e_uuid) {
+                    Ok(_) => on_navigate.call(Screen::ProfileDetail(quail_id_for_delete.clone())),
+                    Err(e) => error.set(t!("error-delete", error: e.to_string())),
+                }
             }
         }
     };
@@ -99,57 +111,49 @@ pub fn EventEditScreen(
             div { style: "display:flex; align-items:center; gap:12px; margin-bottom:20px;",
                 button {
                     style: "padding:8px 12px; background:#e0e0e0; border-radius:8px;",
-                    onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id)),
+                    onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id.clone())),
                     "←"
                 }
-                h1 { style: "margin:0; font-size:22px; color:#0066cc;", "Ereignis bearbeiten" }
+                h1 { style: "margin:0; font-size:22px; color:#0066cc;", { t!("event-edit-title") } }
             }
             if !error().is_empty() {
                 div { style: "background:#ffe6e6; padding:12px; border-radius:8px; color:#c00; margin-bottom:16px;",
-                    "⚠️ {error}"
+                    "⚠️ ",
+                    { error() }
                 }
             }
             if success() {
                 div { style: "background:#e6ffe6; padding:12px; border-radius:8px; color:#060; margin-bottom:16px;",
-                    "✓ Aktualisiert"
+                    "✓ ",
+                    { t!("updated") }
                 }
             }
             if let Some(_) = event() {
                 // Event type
                 div { style: "margin-bottom:16px;",
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
-                        "Typ"
+                        { t!("field-type") }
                     }
                     select {
-                        value: "{event_type():?}",
+                        value: event_type().as_str(),
                         onchange: move |ev| {
                             let v = ev.value();
-                            let t = match v.as_str() {
-                                "Geboren" => EventType::Born,
-                                "AmLeben" => EventType::Alive,
-                                "Krank" => EventType::Sick,
-                                "Gesund" => EventType::Healthy,
-                                "MarkiertZumSchlachten" => EventType::MarkedForSlaughter,
-                                "Geschlachtet" => EventType::Slaughtered,
-                                "Gestorben" => EventType::Died,
-                                _ => EventType::Alive,
-                            };
-                            event_type.set(t);
+                            event_type.set(EventType::from_str(v.as_str()));
                         },
                         style: "width:100%; padding:10px; border:1px solid #ccc; border-radius:8px;",
-                        option { value: "Geboren", "🐣 Geboren" }
-                        option { value: "AmLeben", "✅ Am Leben" }
-                        option { value: "Krank", "🤒 Krank" }
-                        option { value: "Gesund", "💪 Gesund" }
-                        option { value: "MarkiertZumSchlachten", "🥩 Markiert" }
-                        option { value: "Geschlachtet", "🥩 Geschlachtet" }
-                        option { value: "Gestorben", "🪦 Gestorben" }
+                        option { value: "born", "🐣 ", { t!("event-type-born") } }
+                        option { value: "alive", "✅ ", { t!("event-type-alive") } }
+                        option { value: "sick", "🤒 ", { t!("event-type-sick") } }
+                        option { value: "healthy", "💪 ", { t!("event-type-healthy") } }
+                        option { value: "marked_for_slaughter", "🥩 ", { t!("event-type-marked-for-slaughter") } }
+                        option { value: "slaughtered", "🥩 ", { t!("event-type-slaughtered") } }
+                        option { value: "died", "🪦 ", { t!("event-type-died") } }
                     }
                 }
                 // Date
                 div { style: "margin-bottom:16px;",
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
-                        "Datum"
+                        { t!("field-date") }
                     }
                     input {
                         r#type: "date",
@@ -161,7 +165,7 @@ pub fn EventEditScreen(
                 // Notes
                 div { style: "margin-bottom:16px;",
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
-                        "Notizen"
+                        { t!("field-notes") }
                     }
                     textarea {
                         value: "{notes}",
@@ -172,7 +176,7 @@ pub fn EventEditScreen(
                 // Photos grid
                 div { style: "margin-bottom:20px;",
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
-                        "Fotos ({photos().len()})"
+                        { t!("photos-count", count: photos().len()) }
                     }
                     if !photos().is_empty() {
                         div { style: "display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; margin-bottom:12px;",
@@ -182,7 +186,7 @@ pub fn EventEditScreen(
                                     let style_border = "border:2px solid #e0e0e0;";
                                     rsx! {
                                         div {
-                                            key: "{photo.id.unwrap_or(0)}",
+                                            key: "{photo.uuid}",
                                             style: "position:relative; aspect-ratio:1/1; border-radius:8px; overflow:hidden; {style_border}",
                                             {
                                                 match image_processing::image_path_to_data_url(&thumb) {
@@ -198,12 +202,15 @@ pub fn EventEditScreen(
                                             }
                                             button {
                                                 style: "position:absolute; top:4px; right:4px; width:28px; height:28px; background:rgba(204,0,0,0.85); color:white; border-radius:50%; font-size:14px; cursor:pointer;",
-                                                onclick: move |_| {
-                                                    if let Some(pid) = photo.id {
+                                                onclick: {
+                                                    let event_id_for_photo_delete = event_id.clone();
+                                                    move |_| {
                                                         if let Ok(conn) = database::init_database() {
-                                                            let _ = photo_service::delete_photo(&conn, pid);
-                                                            if let Ok(list) = photo_service::list_event_photos(&conn, event_id) {
-                                                                photos.set(list);
+                                                            let _ = photo_service::delete_photo(&conn, &photo.uuid);
+                                                            if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_for_photo_delete.clone()) {
+                                                                if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
+                                                                    photos.set(list);
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -221,91 +228,103 @@ pub fn EventEditScreen(
                         button {
                             disabled: uploading(),
                             style: "flex:1; padding:10px; background:rgba(0,0,0,0.6); color:white; border-radius:8px;",
-                            onclick: move |_| {
-                                uploading.set(true);
-                                error.set(String::new());
-                                spawn(async move {
-                                    #[cfg(target_os = "android")]
-                                    {
-                                        match crate::camera::pick_images() {
-                                            Ok(paths) => {
-                                                if let Ok(conn) = database::init_database() {
-                                                    for p in paths {
-                                                        let ps = p.to_string_lossy().to_string();
-                                                        let th = image_processing::create_thumbnail(&ps).ok();
-                                                        let _ = photo_service::add_event_photo(
+                            onclick: {
+                                let event_id_for_gallery = event_id.clone();
+                                move |_| {
+                                    let event_id_clone = event_id_for_gallery.clone();
+                                    uploading.set(true);
+                                    error.set(String::new());
+                                    spawn(async move {
+                                        #[cfg(target_os = "android")]
+                                        {
+                                            match crate::camera::pick_images() {
+                                                Ok(paths) => {
+                                                    if let Ok(conn) = database::init_database() {
+                                                        if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
+                                                        for p in paths {
+                                                            let ps = p.to_string_lossy().to_string();
+                                                            let th = image_processing::create_thumbnail(&ps).ok();
+                                                            let _ = photo_service::add_event_photo(
+                                                                &conn,
+                                                                e_uuid,
+                                                                ps,
+                                                                th,
+                                                            );
+                                                        }
+                                                        if let Ok(list) = photo_service::list_event_photos(
                                                             &conn,
-                                                            event_id,
-                                                            ps,
-                                                            th,
-                                                        );
-                                                    }
-                                                    if let Ok(list) = photo_service::list_event_photos(
-                                                        &conn,
-                                                        event_id,
-                                                    ) {
-                                                        photos.set(list);
+                                                            &e_uuid,
+                                                        ) {
+                                                            photos.set(list);
+                                                        }
                                                     }
                                                 }
                                             }
-                                            Err(e) => error.set(format!("Auswahlfehler: {}", e)),
+                                            Err(e) => error.set(t!("error-pick-images", error: e.to_string())),
                                         }
                                     }
                                     #[cfg(not(target_os = "android"))]
                                     {
-                                        error.set("Nur Android unterstützt Mehrfachauswahl".to_string());
+                                        error.set(t!("error-android-only-gallery"));
                                     }
                                     uploading.set(false);
                                 });
+                                }
                             },
                             if uploading() {
                                 "⏳"
                             } else {
-                                "🖼️ Galerie"
+                                "🖼️ ", { t!("action-gallery") }
                             }
                         }
                         button {
                             disabled: uploading(),
                             style: "flex:1; padding:10px; background:rgba(0,0,0,0.6); color:white; border-radius:8px;",
-                            onclick: move |_| {
-                                uploading.set(true);
-                                error.set(String::new());
-                                spawn(async move {
-                                    #[cfg(target_os = "android")]
-                                    {
-                                        match crate::camera::capture_photo() {
-                                            Ok(p) => {
-                                                if let Ok(conn) = database::init_database() {
-                                                    let ps = p.to_string_lossy().to_string();
-                                                    let th = image_processing::create_thumbnail(&ps).ok();
-                                                    let _ = photo_service::add_event_photo(
-                                                        &conn,
-                                                        event_id,
-                                                        ps,
-                                                        th,
-                                                    );
-                                                    if let Ok(list) = photo_service::list_event_photos(
-                                                        &conn,
-                                                        event_id,
-                                                    ) {
-                                                        photos.set(list);
+                            onclick: {
+                                let event_id_for_camera = event_id.clone();
+                                move |_| {
+                                    let event_id_clone = event_id_for_camera.clone();
+                                    uploading.set(true);
+                                    error.set(String::new());
+                                    spawn(async move {
+                                        #[cfg(target_os = "android")]
+                                        {
+                                            match crate::camera::capture_photo() {
+                                                Ok(p) => {
+                                                    if let Ok(conn) = database::init_database() {
+                                                        if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
+                                                        let ps = p.to_string_lossy().to_string();
+                                                        let th = image_processing::create_thumbnail(&ps).ok();
+                                                        let _ = photo_service::add_event_photo(
+                                                            &conn,
+                                                            e_uuid,
+                                                            ps,
+                                                            th,
+                                                        );
+                                                        if let Ok(list) = photo_service::list_event_photos(
+                                                            &conn,
+                                                            &e_uuid,
+                                                        ) {
+                                                            photos.set(list);
+                                                        }
                                                     }
                                                 }
                                             }
-                                            Err(e) => error.set(format!("Aufnahmefehler: {}", e)),
+                                            Err(e) => error.set(t!("error-capture-photo", error: e.to_string())),
                                         }
                                     }
                                     #[cfg(not(target_os = "android"))]
                                     {
-                                        error.set("Nur Android Kamera verfügbar".to_string());
+                                        error.set(t!("error-android-only-camera"));
                                     }
                                     uploading.set(false);
                                 });
+                                }
                             },
                             if uploading() {
                                 "⏳"
                             } else {
-                                "📷 Foto"
+                                "📷 ", { t!("action-photo") }
                             }
                         }
                     }
@@ -315,21 +334,24 @@ pub fn EventEditScreen(
                     button {
                         style: "flex:1; padding:14px; background:#0066cc; color:white; border-radius:8px; font-weight:600;",
                         onclick: move |_| handle_save(),
-                        "✓ Speichern"
+                        "✓ ", { t!("action-save") }
                     }
                     button {
                         style: "flex:1; padding:14px; background:#e0e0e0; color:#333; border-radius:8px; font-weight:600;",
-                        onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id)),
-                        "Abbrechen"
+                        onclick: {
+                            let quail_id_for_cancel = quail_id.clone();
+                            move |_| on_navigate.call(Screen::ProfileDetail(quail_id_for_cancel.clone()))
+                        },
+                        { t!("action-cancel") }
                     }
                     button {
                         style: "flex:1; padding:14px; background:#ffdddd; color:#cc0000; border-radius:8px; font-weight:600;",
                         onclick: move |_| handle_delete(),
-                        "🗑️ Löschen"
+                        "🗑️ ", { t!("action-delete") }
                     }
                 }
             } else {
-                div { style: "padding:40px; text-align:center; color:#666;", "Lade Ereignis..." }
+                div { style: "padding:40px; text-align:center; color:#666;", { t!("loading-event") } }
             }
         }
     }

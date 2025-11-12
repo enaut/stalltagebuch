@@ -3,13 +3,13 @@ use chrono::NaiveDate;
 use rusqlite::types::Type;
 use rusqlite::Row;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Event in the life of a quail (status change, birth, etc.)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuailEvent {
-    pub id: Option<i64>,
-    pub uuid: String,
-    pub quail_id: i64,
+    pub uuid: Uuid,
+    pub quail_id: Uuid,
     pub event_type: EventType,
     pub event_date: NaiveDate,
     pub notes: Option<String>,
@@ -80,10 +80,9 @@ impl EventType {
 
 impl QuailEvent {
     /// Creates a new event
-    pub fn new(quail_id: i64, event_type: EventType, event_date: NaiveDate) -> Self {
+    pub fn new(quail_id: Uuid, event_type: EventType, event_date: NaiveDate) -> Self {
         Self {
-            id: None,
-            uuid: uuid::Uuid::new_v4().to_string(),
+            uuid: Uuid::new_v4(),
             quail_id,
             event_type,
             event_date,
@@ -118,18 +117,18 @@ impl<'r> TryFrom<&Row<'r>> for QuailEvent {
     type Error = rusqlite::Error;
 
     fn try_from(row: &Row<'r>) -> Result<Self, Self::Error> {
-        let id: i64 = row.get(0)?;
-        let uuid: String = row.get(1)?;
-        let quail_id: i64 = row.get(2)?;
-        let event_type_str: String = row.get(3)?;
-        let event_date_str: String = row.get(4)?;
-        let notes: Option<String> = row.get(5)?;
+        let uuid_str: String = row.get(0)?;
+        let uuid = Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let quail_id_str: String = row.get(1)?;
+        let quail_id = Uuid::parse_str(&quail_id_str).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let event_type_str: String = row.get(2)?;
+        let event_date_str: String = row.get(3)?;
+        let notes: Option<String> = row.get(4)?;
 
         let event_date = NaiveDate::parse_from_str(&event_date_str, "%Y-%m-%d")
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(4, Type::Text, Box::new(e)))?;
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(3, Type::Text, Box::new(e)))?;
 
         Ok(QuailEvent {
-            id: Some(id),
             uuid,
             quail_id,
             event_type: EventType::from_str(&event_type_str),

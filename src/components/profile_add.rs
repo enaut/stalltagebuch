@@ -53,12 +53,11 @@ pub fn AddProfileScreen(on_navigate: EventHandler<Screen>) -> Element {
                             let path_str = path.to_string_lossy().to_string();
                             let thumbnail_opt =
                                 crate::image_processing::create_thumbnail(&path_str).ok();
-                            let _ = crate::services::photo_service::add_wachtel_photo(
+                            let _ = crate::services::photo_service::add_quail_photo(
                                 &conn,
                                 quail_id,
                                 path_str,
                                 thumbnail_opt,
-                                true, // is_profile
                             );
                         }
                         success.set(true);
@@ -71,7 +70,7 @@ pub fn AddProfileScreen(on_navigate: EventHandler<Screen>) -> Element {
                 }
             }
             Err(e) => {
-                error.set(Some(format!("{}: {}", t!("error-database"), e))); // Database error
+                error.set(Some(t!("error-database", error: e.to_string()))); // Database error
             }
         }
     };

@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::models::Photo;
 use rusqlite::{params, Connection, OptionalExtension};
+use uuid::Uuid;
 
 /// Returns the absolute path to a photo (for UI display)
 pub fn get_absolute_photo_path(relative_path: &str) -> String {
@@ -72,22 +73,22 @@ fn rename_photo_with_uuid(original_path: &str) -> Result<(String, String), AppEr
     Ok((new_filename, thumb_filename))
 }
 
-pub fn add_wachtel_photo(
+pub fn add_quail_photo(
     conn: &Connection,
-    quail_id: i64,
+    quail_id: Uuid,
     path: String,
     thumbnail_path: Option<String>,
-    is_profile: bool,
-) -> Result<i64, AppError> {
-    eprintln!("=== add_wachtel_photo called ===");
+) -> Result<Uuid, AppError> {
+    eprintln!("=== add_quail_photo called ===");
     eprintln!(
-        "Wachtel ID: {}, Path: {}, Thumbnail: {:?}, Is profile: {}",
-        quail_id, path, thumbnail_path, is_profile
+        "Quail ID: {}, Path: {}, Thumbnail: {:?}",
+        quail_id, path, thumbnail_path
     );
 
     // Benenne Foto mit UUID um
     let (new_path, new_thumb_name) = rename_photo_with_uuid(&path)?;
-    let uuid = new_path.trim_end_matches(".jpg").to_string();
+    let uuid = Uuid::parse_str(new_path.trim_end_matches(".jpg"))
+        .map_err(|_| AppError::Other("Invalid UUID from filename".to_string()))?;
     eprintln!("UUID extracted: {}", uuid);
 
     // Benenne auch Thumbnail mit UUID um falls vorhanden
@@ -122,27 +123,27 @@ pub fn add_wachtel_photo(
     };
 
     conn.execute(
-        "INSERT INTO photos (uuid, quail_id, path, thumbnail_path, is_profile) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO photos (uuid, quail_id, path, thumbnail_path) VALUES (?1, ?2, ?3, ?4)",
         params![
-            uuid,
-            quail_id,
+            uuid.to_string(),
+            quail_id.to_string(),
             new_path,
             final_thumb,
-            if is_profile { 1 } else { 0 }
         ],
     )?;
-    Ok(conn.last_insert_rowid())
+    Ok(uuid)
 }
 
 pub fn add_event_photo(
     conn: &Connection,
-    event_id: i64,
+    event_id: Uuid,
     path: String,
     thumbnail_path: Option<String>,
-) -> Result<i64, AppError> {
+) -> Result<Uuid, AppError> {
     // Benenne Foto mit UUID um
     let (new_path, new_thumb_name) = rename_photo_with_uuid(&path)?;
-    let uuid = new_path.trim_end_matches(".jpg").to_string();
+    let uuid = Uuid::parse_str(new_path.trim_end_matches(".jpg"))
+        .map_err(|_| AppError::Other("Invalid UUID from filename".to_string()))?;
 
     // Benenne auch Thumbnail mit UUID um falls vorhanden
     let final_thumb = if let Some(thumb_path) = thumbnail_path {
@@ -167,98 +168,124 @@ pub fn add_event_photo(
     };
 
     conn.execute(
-        "INSERT INTO photos (uuid, event_id, path, thumbnail_path, is_profile) VALUES (?1, ?2, ?3, ?4, 0)",
-        params![uuid, event_id, new_path, final_thumb],
+        "INSERT INTO photos (uuid, event_id, path, thumbnail_path) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            uuid.to_string(),
+            event_id.to_string(),
+            new_path,
+            final_thumb
+        ],
     )?;
-    Ok(conn.last_insert_rowid())
+    Ok(uuid)
 }
 
-pub fn list_wachtel_photos(conn: &Connection, quail_id: i64) -> Result<Vec<Photo>, AppError> {
+pub fn list_quail_photos(conn: &Connection, quail_uuid: &Uuid) -> Result<Vec<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, quail_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE quail_id = ?1 ORDER BY id"
+        "SELECT uuid, quail_id, event_id, path, thumbnail_path FROM photos WHERE quail_id = ?1",
     )?;
-    let rows = stmt.query_map(params![quail_id], |row| {
-        let relative_path: String = row.get(4)?;
-        let relative_thumb: Option<String> = row.get(5)?;
+    let rows = stmt.query_map(params![quail_uuid.to_string()], |row| {
+        let uuid_str: String = row.get(0)?;
+        let quail_id_str: Option<String> = row.get(1)?;
+        let event_id_str: Option<String> = row.get(2)?;
+        let relative_path: String = row.get(3)?;
+        let relative_thumb: Option<String> = row.get(4)?;
 
         Ok(Photo {
-            id: row.get(0)?,
-            uuid: row.get(1)?,
-            quail_id: row.get(2)?,
-            event_id: row.get(3)?,
+            uuid: Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+            quail_id: quail_id_str.map(|s| Uuid::parse_str(&s).ok()).flatten(),
+            event_id: event_id_str.map(|s| Uuid::parse_str(&s).ok()).flatten(),
             path: get_absolute_photo_path(&relative_path),
             thumbnail_path: relative_thumb.map(|t| get_absolute_photo_path(&t)),
-            is_profile: matches!(row.get::<_, i64>(6)?, 1),
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-pub fn list_event_photos(conn: &Connection, event_id: i64) -> Result<Vec<Photo>, AppError> {
+pub fn list_event_photos(conn: &Connection, event_uuid: &Uuid) -> Result<Vec<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, quail_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE event_id = ?1 ORDER BY id"
+        "SELECT uuid, quail_id, event_id, path, thumbnail_path FROM photos WHERE event_id = ?1",
     )?;
-    let rows = stmt.query_map(params![event_id], |row| {
-        let relative_path: String = row.get(4)?;
-        let relative_thumb: Option<String> = row.get(5)?;
+    let rows = stmt.query_map(params![event_uuid.to_string()], |row| {
+        let uuid_str: String = row.get(0)?;
+        let quail_id_str: Option<String> = row.get(1)?;
+        let event_id_str: Option<String> = row.get(2)?;
+        let relative_path: String = row.get(3)?;
+        let relative_thumb: Option<String> = row.get(4)?;
 
         Ok(Photo {
-            id: row.get(0)?,
-            uuid: row.get(1)?,
-            quail_id: row.get(2)?,
-            event_id: row.get(3)?,
+            uuid: Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+            quail_id: quail_id_str.map(|s| Uuid::parse_str(&s).ok()).flatten(),
+            event_id: event_id_str.map(|s| Uuid::parse_str(&s).ok()).flatten(),
             path: get_absolute_photo_path(&relative_path),
             thumbnail_path: relative_thumb.map(|t| get_absolute_photo_path(&t)),
-            is_profile: matches!(row.get::<_, i64>(6)?, 1),
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-pub fn get_profile_photo(conn: &Connection, quail_id: i64) -> Result<Option<Photo>, AppError> {
+pub fn get_profile_photo(conn: &Connection, quail_uuid: &Uuid) -> Result<Option<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, quail_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE quail_id = ?1 AND is_profile = 1 ORDER BY id LIMIT 1"
+        "SELECT p.uuid, p.quail_id, p.event_id, p.path, p.thumbnail_path 
+         FROM photos p 
+         JOIN quails q ON q.profile_photo = p.uuid 
+         WHERE q.uuid = ?1",
     )?;
     let res = stmt
-        .query_row(params![quail_id], |row| {
-            let relative_path: String = row.get(4)?;
-            let relative_thumb: Option<String> = row.get(5)?;
+        .query_row(params![quail_uuid.to_string()], |row| {
+            let uuid_str: String = row.get(0)?;
+            let quail_id_str: Option<String> = row.get(1)?;
+            let event_id_str: Option<String> = row.get(2)?;
+            let relative_path: String = row.get(3)?;
+            let relative_thumb: Option<String> = row.get(4)?;
 
             Ok(Photo {
-                id: row.get(0)?,
-                uuid: row.get(1)?,
-                quail_id: row.get(2)?,
-                event_id: row.get(3)?,
+                uuid: Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                quail_id: quail_id_str.map(|s| Uuid::parse_str(&s).ok()).flatten(),
+                event_id: event_id_str.map(|s| Uuid::parse_str(&s).ok()).flatten(),
                 path: get_absolute_photo_path(&relative_path),
                 thumbnail_path: relative_thumb.map(|t| get_absolute_photo_path(&t)),
-                is_profile: true,
             })
         })
         .optional()?;
     Ok(res)
 }
 
-pub fn set_profile_photo(conn: &Connection, quail_id: i64, photo_id: i64) -> Result<(), AppError> {
-    // Setze alle auf 0
-    conn.execute(
-        "UPDATE photos SET is_profile = 0 WHERE quail_id = ?1",
-        params![quail_id],
-    )?;
-    // Ziel auf 1
-    let rows = conn.execute(
-        "UPDATE photos SET is_profile = 1 WHERE id = ?1 AND quail_id = ?2",
-        params![photo_id, quail_id],
-    )?;
-    if rows == 0 {
-        return Err(AppError::NotFound(
-            "Foto nicht gefunden oder gehört nicht zur Wachtel".into(),
-        ));
+pub fn set_profile_photo(
+    conn: &Connection,
+    quail_uuid: &Uuid,
+    photo_uuid: &Uuid,
+) -> Result<(), AppError> {
+    // Verify photo belongs to quail
+    let photo_quail: Option<String> = conn
+        .query_row(
+            "SELECT quail_id FROM photos WHERE uuid = ?1",
+            params![photo_uuid.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    match photo_quail {
+        Some(qid) if qid == quail_uuid.to_string() => {
+            // Set profile_photo FK
+            let rows = conn.execute(
+                "UPDATE quails SET profile_photo = ?1 WHERE uuid = ?2",
+                params![photo_uuid.to_string(), quail_uuid.to_string()],
+            )?;
+            if rows == 0 {
+                return Err(AppError::NotFound("Wachtel nicht gefunden".into()));
+            }
+            Ok(())
+        }
+        Some(_) => Err(AppError::NotFound("Foto gehört nicht zur Wachtel".into())),
+        None => Err(AppError::NotFound("Foto nicht gefunden".into())),
     }
-    Ok(())
 }
 
-pub fn delete_photo(conn: &Connection, photo_id: i64) -> Result<(), AppError> {
-    let rows = conn.execute("DELETE FROM photos WHERE id = ?1", params![photo_id])?;
+pub fn delete_photo(conn: &Connection, photo_uuid: &Uuid) -> Result<(), AppError> {
+    let rows = conn.execute(
+        "DELETE FROM photos WHERE uuid = ?1",
+        params![photo_uuid.to_string()],
+    )?;
     if rows == 0 {
         return Err(AppError::NotFound("Foto nicht gefunden".into()));
     }

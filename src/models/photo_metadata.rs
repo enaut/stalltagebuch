@@ -4,15 +4,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhotoMetadata {
     pub photo_id: String,           // UUID des Fotos
-    pub quail_id: Option<i64>,      // Quail-ID falls zugeordnet
     pub quail_uuid: Option<String>, // Quail-UUID falls zugeordnet
-    pub event_id: Option<i64>,      // Event-ID falls zugeordnet
     pub event_uuid: Option<String>, // Event-UUID falls zugeordnet
     pub timestamp: String,          // ISO 8601 Zeitstempel
     pub notes: Option<String>,      // Notizen zum Foto
     pub device_id: String,          // Eindeutige Geräte-ID
     pub checksum: String,           // SHA256 Hash des Fotos
-    pub is_profile: bool,           // Profilbild?
     pub relative_path: String,      // e.g. "quails/{uuid}/photos/{photo_uuid}.jpg"
 }
 

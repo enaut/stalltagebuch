@@ -1,23 +1,29 @@
 use crate::error::AppError;
 use crate::models::EggRecord;
 use rusqlite::{params, Connection};
+use uuid::Uuid;
 
 /// Creates a new egg record
-pub fn add_egg_record(conn: &Connection, record: &EggRecord) -> Result<i64, AppError> {
+pub fn add_egg_record(conn: &Connection, record: &EggRecord) -> Result<Uuid, AppError> {
     let date_str = record.record_date.format("%Y-%m-%d").to_string();
 
     conn.execute(
         "INSERT INTO egg_records (uuid, record_date, total_eggs, notes) VALUES (?1, ?2, ?3, ?4)",
-        params![record.uuid, date_str, record.total_eggs, record.notes],
+        params![
+            record.uuid.to_string(),
+            date_str,
+            record.total_eggs,
+            record.notes
+        ],
     )?;
 
-    Ok(conn.last_insert_rowid())
+    Ok(record.uuid)
 }
 
 /// Loads an egg record for a specific date
 pub fn get_egg_record(conn: &Connection, date: &str) -> Result<EggRecord, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, record_date, total_eggs, notes 
+        "SELECT uuid, record_date, total_eggs, notes 
          FROM egg_records 
          WHERE record_date = ?1",
     )?;
@@ -70,25 +76,25 @@ pub fn list_egg_records(
 ) -> Result<Vec<EggRecord>, AppError> {
     let query = match (start_date, end_date) {
         (Some(_), Some(_)) => {
-            "SELECT id, uuid, record_date, total_eggs, notes 
+            "SELECT uuid, record_date, total_eggs, notes 
              FROM egg_records 
              WHERE record_date BETWEEN ?1 AND ?2 
              ORDER BY record_date DESC"
         }
         (Some(_), None) => {
-            "SELECT id, uuid, record_date, total_eggs, notes 
+            "SELECT uuid, record_date, total_eggs, notes 
              FROM egg_records 
              WHERE record_date >= ?1 
              ORDER BY record_date DESC"
         }
         (None, Some(_)) => {
-            "SELECT id, uuid, record_date, total_eggs, notes 
+            "SELECT uuid, record_date, total_eggs, notes 
              FROM egg_records 
              WHERE record_date <= ?1 
              ORDER BY record_date DESC"
         }
         (None, None) => {
-            "SELECT id, uuid, record_date, total_eggs, notes 
+            "SELECT uuid, record_date, total_eggs, notes 
              FROM egg_records 
              ORDER BY record_date DESC"
         }
@@ -136,7 +142,7 @@ mod tests {
         let date = chrono::Local::now().date_naive();
         let record = EggRecord::new(date, 12);
         let id = add_egg_record(&conn, &record).unwrap();
-        assert!(id > 0);
+        assert!(!id.is_nil());
 
         let date_str = record.record_date.format("%Y-%m-%d").to_string();
         let loaded = get_egg_record(&conn, &date_str).unwrap();

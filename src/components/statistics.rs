@@ -63,7 +63,7 @@ pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
                 }
             }
             Err(e) => {
-                error.set(format!("{}: {}", t!("error-database"), e)); // Database connection error
+                error.set(t!("error-database", error: e.to_string())); // Database connection error
             }
         }
     };

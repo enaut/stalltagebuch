@@ -1,92 +1,116 @@
 # Generated translation template by dx-i18n
-# Contains 155 translation keys
+# Contains 210 translation keys
 
 # Add event
-# Source: ./src/components/profile_detail.rs:351
+# Source: ./src/components/profile_detail.rs:392
 action-add-event = Ereignis
 
-# Back
-# Source: ./src/components/profile_detail.rs:57
+# Source: ./src/components/profile_add.rs:87
 action-back = Zurück
 
-# Source: ./src/components/profile_add.rs:256
+# Source: ./src/components/profile_add.rs:255
 action-camera = Kamera
 
 # Cancel
-# Source: ./src/components/profile_edit.rs:330
+# Source: ./src/components/profile_edit.rs:349
 action-cancel = Abbrechen
 
-# Close
-# Source: ./src/components/profile_detail.rs:436
+# Source: ./src/components/profile_detail.rs:483
 action-close = Schließen
 
-# Delete permanently
-# Source: ./src/components/profile_edit.rs:349
+# Source: ./src/components/event_edit.rs:350
+action-delete = Löschen
+
+# Source: ./src/components/profile_edit.rs:367
 action-delete-permanently = Endgültig löschen
 
-# Delete quail
-# Source: ./src/components/profile_edit.rs:362
+# Source: ./src/components/profile_edit.rs:381
 action-delete-quail = Wachtel löschen
 
-# Edit
-# Source: ./src/components/profile_detail.rs:411
+# Source: ./src/components/profile_detail.rs:457
 action-edit = Bearbeiten
 
-# Gallery
-# Source: ./src/components/profile_detail.rs:197
+# Source: ./src/components/profile_add.rs:225
 action-gallery = Galerie
 
-# Source: ./src/components/profile_add.rs:223
+# Source: ./src/components/profile_add.rs:222
 action-loading = Lädt...
 
 # New
 # Source: ./src/components/profile_list.rs:72
 action-new = Neu
 
-# Photo
-# Source: ./src/components/profile_detail.rs:254
+# Source: ./src/components/event_edit.rs:327
 action-photo = Foto
 
 # Source: ./src/components/settings.rs:134
 action-retry = Erneut versuchen
 
-# Save
-# Source: ./src/components/profile_edit.rs:325
+# Source: ./src/components/profile_edit.rs:343
 action-save = Speichern
+
+# Source: ./src/components/egg_tracking.rs:245
+action-update = Aktualisieren
 
 # Source: ./src/components/home.rs:34
 app-title = Wachtel-Stallbuch
 
-# PROFILE
-# Source: ./src/components/profile_edit.rs:272
-badge-profile = PROFIL
-
-# Do you really want to delete this quail? This action cannot be undone.
-# Source: ./src/components/profile_edit.rs:341
+# Source: ./src/components/profile_edit.rs:359
 confirm-delete-quail = Möchten Sie diese Wachtel wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+
+# Source: ./src/components/egg_history.rs:125
+# Parameters: $count
+egg-history-eggs-count = { $count } Eier
+
+# Source: ./src/components/egg_history.rs:68
+egg-history-empty = Keine Einträge vorhanden
+
+# Source: ./src/components/egg_history.rs:17
+# Parameters: $count
+egg-history-loaded = { $count } Einträge geladen
+
+# Source: ./src/components/egg_history.rs:45
+egg-history-title = Eier-Historie
+
+# Source: ./src/components/egg_tracking.rs:172
+egg-tracking-exists-warning = Eintrag für dieses Datum existiert bereits - Änderungen überschreiben den bestehenden Eintrag
+
+# Source: ./src/components/egg_tracking.rs:261
+egg-tracking-show-history = Historie anzeigen
+
+# Source: ./src/components/egg_tracking.rs:163
+egg-tracking-success = Eintrag erfolgreich gespeichert!
 
 # Source: ./src/components/home.rs:59
 egg-tracking-title = Eier eintragen
 
-# Source: ./src/components/profile_add.rs:211
+# Source: ./src/components/profile_add.rs:210
 error = Fehler
 
 # Source: ./src/components/settings.rs:234
 error-access-failed = Zugriff fehlgeschlagen
 
-# Source: ./src/components/profile_add.rs:216
+# Source: ./src/components/profile_add.rs:215
 error-android-only = Nur auf Android verfügbar
+
+# Source: ./src/components/event_edit.rs:318
+error-android-only-camera = Kamera nur auf Android verfügbar
+
+# Source: ./src/components/event_edit.rs:268
+error-android-only-gallery = Galerie nur auf Android verfügbar
 
 # Source: ./src/components/statistics.rs:54
 error-calculation = Fehler beim Berechnen
 
-# Camera only available on Android
-# Source: ./src/components/profile_detail.rs:246
+# Source: ./src/components/profile_detail.rs:275
 error-camera-android-only = Kamera nur auf Android verfügbar
 
-# Capture failed
-# Source: ./src/components/profile_detail.rs:241
+# Source: ./src/components/profile_detail.rs:269
 error-capture-failed = Fehler bei Aufnahme
+
+# Source: ./src/components/event_edit.rs:313
+# Parameters: $error
+error-capture-photo = Aufnahmefehler: { $error }
 
 # Source: ./src/components/settings.rs:56
 error-client = Client-Fehler
@@ -95,64 +119,100 @@ error-client = Client-Fehler
 error-connection = Verbindungsfehler
 
 # Database error
-# Source: ./src/components/profile_edit.rs:53
-error-database = DB-Fehler
+# Source: ./src/components/profile_edit.rs:60
+# Parameters: $error
+error-database = DB-Fehler: { $error }
 
-# Failed to delete
-# Source: ./src/components/profile_edit.rs:113
+# Source: ./src/components/egg_tracking.rs:38
+# Parameters: $error
+error-database-detail = Datenbankfehler: { $error }
+
+# Source: ./src/components/egg_tracking.rs:78
+error-date-format = Ungültiges Datum (Format: YYYY-MM-DD)
+
+# Source: ./src/components/event_edit.rs:90
+error-db-unavailable = Datenbank nicht verfügbar
+
+# Source: ./src/components/event_edit.rs:102
+# Parameters: $error
+error-delete = Löschen fehlgeschlagen: { $error }
+
+# Source: ./src/components/profile_edit.rs:132
 error-delete-failed = Fehler beim Löschen
 
 # Source: ./src/components/settings.rs:468
 error-deleting = Fehler beim Löschen
 
+# Source: ./src/components/egg_tracking.rs:56
+error-eggs-count-empty = Eierzahl darf nicht leer sein
+
+# Source: ./src/components/egg_tracking.rs:67
+error-eggs-count-invalid = Ungültige Eierzahl
+
+# Source: ./src/components/egg_tracking.rs:63
+error-eggs-count-negative = Eierzahl darf nicht negativ sein
+
+# Source: ./src/components/event_edit.rs:59
+error-empty-date = Datum darf nicht leer sein
+
+# Source: ./src/components/event_add.rs:81
+# Parameters: $error
+error-event-save = Fehler beim Speichern: { $error }
+
+# Source: ./src/components/event_add.rs:46
+error-invalid-date = Ungültiges Datumsformat
+
 # Source: ./src/components/settings.rs:391
 error-json = JSON-Fehler
 
 # Failed to load events
-# Source: ./src/components/profile_detail.rs:45
+# Source: ./src/components/profile_detail.rs:50
 error-load-events-failed = Fehler beim Laden der Events
 
 # Failed to load
-# Source: ./src/components/profile_detail.rs:39
-error-load-failed = Fehler beim Laden
+# Source: ./src/components/profile_edit.rs:37
+# Parameters: $error
+error-load-failed = Fehler beim Laden: { $error }
 
-# Failed to load photos
-# Source: ./src/components/profile_edit.rs:48
+# Source: ./src/components/profile_edit.rs:53
 error-load-photos-failed = Fehler beim Laden der Fotos
 
 # Failed to load profiles
 # Source: ./src/components/profile_list.rs:29
 error-load-profiles-failed = Profile laden fehlgeschlagen
 
-# Source: ./src/components/settings.rs:253
-error-loading = Fehler beim Laden
+# Source: ./src/components/event_edit.rs:44
+# Parameters: $error
+error-loading = Fehler beim Laden: { $error }
 
 # Source: ./src/components/settings.rs:429
 error-login-timeout = Timeout: Keine Anmeldung innerhalb von 5 Minuten
 
-# Multi-select only available on Android
-# Source: ./src/components/profile_detail.rs:189
+# Source: ./src/components/profile_detail.rs:209
 error-multiselect-android-only = Mehrfach-Auswahl nur auf Android verfügbar
 
 # Name is required
-# Source: ./src/components/profile_edit.rs:60
+# Source: ./src/components/profile_edit.rs:68
 error-name-required = Name darf nicht leer sein
 
 # Source: ./src/components/settings.rs:47
 error-network = Fehler
 
+# Source: ./src/components/event_edit.rs:263
+# Parameters: $error
+error-pick-images = Auswahlfehler: { $error }
+
 # Source: ./src/components/settings.rs:411
 error-poll = Poll-Fehler
 
-# Source: ./src/components/profile_add.rs:68
+# Source: ./src/components/profile_add.rs:67
+# Parameters: $error
 error-save = Speicherfehler
 
-# Failed to save
-# Source: ./src/components/profile_detail.rs:236
+# Source: ./src/components/profile_edit.rs:111
 error-save-failed = Fehler beim Speichern
 
-# Selection failed
-# Source: ./src/components/profile_detail.rs:183
+# Source: ./src/components/profile_detail.rs:203
 error-selection-failed = Fehler bei Auswahl
 
 # Source: ./src/components/settings.rs:444
@@ -168,61 +228,129 @@ error-unexpected-status = Unerwarteter Status
 # Source: ./src/components/settings.rs:339
 error-webdav-client = WebDAV-Client-Fehler
 
+# Source: ./src/components/event_add.rs:97
+# Parameters: $name
+event-add-for = für { $name }
+
+# Source: ./src/components/event_add.rs:96
+event-add-title = Ereignis hinzufügen
+
+# Source: ./src/components/event_edit.rs:117
+event-edit-title = Ereignis bearbeiten
+
+# Source: ./src/components/event_edit.rs:43
+event-not-found = Ereignis nicht gefunden
+
+# Source: ./src/components/event_add.rs:121
+event-type-alive = ✅ Am Leben
+
+# Source: ./src/components/event_add.rs:120
+event-type-born = 🐣 Geboren
+
+# Source: ./src/components/event_add.rs:126
+event-type-died = 🪦 Gestorben
+
+# Source: ./src/components/event_add.rs:123
+event-type-healthy = 💪 Gesund
+
+# Source: ./src/components/event_add.rs:124
+event-type-marked = 🥩 Markiert zum Schlachten
+
+# Source: ./src/components/event_edit.rs:148
+event-type-marked-for-slaughter = Markiert zum Schlachten
+
+# Source: ./src/components/event_add.rs:122
+event-type-sick = 🤒 Krank
+
+# Source: ./src/components/event_add.rs:125
+event-type-slaughtered = 🥩 Geschlachtet
+
 # No events available
-# Source: ./src/components/profile_detail.rs:357
+# Source: ./src/components/profile_detail.rs:398
 events-empty = Keine Ereignisse vorhanden
 
-# Events
-# Source: ./src/components/profile_detail.rs:338
+# Source: ./src/components/profile_detail.rs:378
 events-timeline-title = Ereignisse
 
+# Source: ./src/components/event_add.rs:133
+field-date = Datum
+
+# Source: ./src/components/egg_tracking.rs:199
+field-date-format-hint = Format: YYYY-MM-DD
+
+# Source: ./src/components/egg_tracking.rs:185
+field-date-required = Datum *
+
+# Source: ./src/components/egg_tracking.rs:213
+field-eggs-count-placeholder = z.B. 12
+
+# Source: ./src/components/egg_tracking.rs:208
+field-eggs-count-required = Anzahl Eier *
+
+# Source: ./src/components/event_add.rs:110
+field-event-type = Ereignistyp
+
 # Gender
-# Source: ./src/components/profile_edit.rs:181
+# Source: ./src/components/profile_edit.rs:200
 field-gender = Geschlecht
 
 # e.g. Hen 1
-# Source: ./src/components/profile_edit.rs:169
+# Source: ./src/components/profile_edit.rs:190
 field-name-placeholder = z.B. Flecki
 
 # Name *
-# Source: ./src/components/profile_edit.rs:164
+# Source: ./src/components/profile_edit.rs:185
 field-name-required = Name *
 
+# Source: ./src/components/egg_tracking.rs:225
+field-notes = Notizen
+
+# Source: ./src/components/event_add.rs:146
+field-notes-optional = Notizen (optional)
+
+# Source: ./src/components/egg_tracking.rs:230
+field-notes-placeholder = Besonderheiten, Auffälligkeiten, etc.
+
 # Photos count
-# Source: ./src/components/profile_edit.rs:228
+# Source: ./src/components/profile_edit.rs:243
 field-photos = Fotos
 
 # Ring color
-# Source: ./src/components/profile_edit.rs:198
+# Source: ./src/components/profile_edit.rs:215
 field-ring-color = Ringfarbe
 
+# Source: ./src/components/event_edit.rs:135
+field-type = Typ
+
 # Female
-# Source: ./src/components/profile_edit.rs:188
+# Source: ./src/components/profile_edit.rs:207
 gender-female = Weiblich
 
 # Male
-# Source: ./src/components/profile_edit.rs:189
+# Source: ./src/components/profile_edit.rs:208
 gender-male = Männlich
 
 # Unknown
-# Source: ./src/components/profile_edit.rs:187
+# Source: ./src/components/profile_edit.rs:206
 gender-unknown = Unbekannt
 
 # DB: {path}
 # Source: ./src/components/home.rs:90
-# Parameters: $path, $database
+# Parameters: $database, $path
 info-db-path = DB: { $path }
 
-# Photos are added in detail view. Here you can only select profile photo or delete photos.
-# Source: ./src/components/profile_edit.rs:220
+# Source: ./src/components/profile_edit.rs:237
 info-photos-detail-view = Fotos werden in der Detailansicht hinzugefügt. Hier können Sie nur das Profilbild auswählen oder Fotos löschen.
 
 # Tap a photo to mark it as profile photo.
-# Source: ./src/components/profile_edit.rs:313
+# Source: ./src/components/profile_edit.rs:331
 info-tap-photo-to-mark = Tippen Sie auf ein Foto, um es als Profilbild zu markieren.
 
+# Source: ./src/components/event_edit.rs:354
+loading-event = Lade Ereignis...
+
 # Loading profile...
-# Source: ./src/components/profile_detail.rs:417
+# Source: ./src/components/profile_detail.rs:463
 loading-profile = Lade Profil...
 
 # Eier
@@ -266,37 +394,43 @@ period-week = Woche
 period-year = Jahr
 
 # No photo selected message
-# Source: ./src/components/profile_add.rs:193
+# Source: ./src/components/profile_add.rs:192
 photo-none-selected = Kein Foto ausgewählt
 
 # Photo selected status message
-# Source: ./src/components/profile_add.rs:178
+# Source: ./src/components/profile_add.rs:177
 photo-selected = Foto ausgewählt
 
+# Source: ./src/components/event_edit.rs:179
+# Parameters: $count
+photos-count = Fotos ({ $count })
+
 # No photos available. Add photos in detail view.
-# Source: ./src/components/profile_edit.rs:234
+# Source: ./src/components/profile_edit.rs:248
 photos-empty = Keine Fotos vorhanden. Fügen Sie Fotos in der Detailansicht hinzu.
 
-# Source: ./src/components/profile_add.rs:162
+# Source: ./src/components/event_add.rs:152
+placeholder-event-notes = Weitere Informationen zum Ereignis...
+
+# Source: ./src/components/profile_add.rs:161
 profile-add-info = Geburtsdatum und Notizen können nach dem Erstellen als Ereignisse hinzugefügt werden.
 
 # New profile page title
-# Source: ./src/components/profile_add.rs:91
+# Source: ./src/components/profile_add.rs:90
 profile-add-title = Wachtel hinzufügen
 
-# Source: ./src/components/profile_add.rs:104
+# Source: ./src/components/profile_add.rs:103
 profile-created-success = Profil erstellt!
 
 # Profile
-# Source: ./src/components/profile_detail.rs:60
+# Source: ./src/components/profile_detail.rs:67
 profile-detail-title = Profil
 
-# Edit profile
-# Source: ./src/components/profile_edit.rs:135
+# Source: ./src/components/profile_edit.rs:159
 profile-edit-title = Profil bearbeiten
 
 # Gender field label
-# Source: ./src/components/profile_add.rs:126
+# Source: ./src/components/profile_add.rs:125
 profile-gender-label = Geschlecht
 
 # No profiles available
@@ -307,63 +441,63 @@ profile-list-empty = Keine Profile vorhanden
 profile-list-title = Wachtel-Profile
 
 # Name field label with required marker
-# Source: ./src/components/profile_add.rs:112
+# Source: ./src/components/profile_add.rs:111
 profile-name-label = Name *
 
 # Example name placeholder
-# Source: ./src/components/profile_add.rs:117
+# Source: ./src/components/profile_add.rs:116
 profile-name-placeholder = z.B. Flecki
 
 # Photo field label
-# Source: ./src/components/profile_add.rs:167
+# Source: ./src/components/profile_add.rs:166
 profile-photo-label = Foto
 
 # Ring color field label
-# Source: ./src/components/profile_add.rs:140
+# Source: ./src/components/profile_add.rs:139
 profile-ring-color-label = Ringfarbe
 
 # Black
-# Source: ./src/components/profile_edit.rs:213
+# Source: ./src/components/profile_edit.rs:230
 ring-color-black = Schwarz
 
 # Dark blue
-# Source: ./src/components/profile_edit.rs:208
+# Source: ./src/components/profile_edit.rs:225
 ring-color-dark-blue = Dunkelblau
 
 # Green
-# Source: ./src/components/profile_edit.rs:214
+# Source: ./src/components/profile_edit.rs:231
 ring-color-green = Grün
 
 # Light blue
-# Source: ./src/components/profile_edit.rs:207
+# Source: ./src/components/profile_edit.rs:224
 ring-color-light-blue = Hellblau
 
 # None
-# Source: ./src/components/profile_edit.rs:204
+# Source: ./src/components/profile_edit.rs:221
 ring-color-none = Keine Ringfarbe
 
 # Orange
-# Source: ./src/components/profile_edit.rs:210
+# Source: ./src/components/profile_edit.rs:227
 ring-color-orange = Orange
 
 # Pink
-# Source: ./src/components/profile_edit.rs:206
+# Source: ./src/components/profile_edit.rs:223
 ring-color-pink = Rosa
 
 # Purple
-# Source: ./src/components/profile_edit.rs:205
+# Source: ./src/components/profile_edit.rs:222
 ring-color-purple = Lila
 
 # Red
-# Source: ./src/components/profile_edit.rs:209
+# Source: ./src/components/profile_edit.rs:226
 ring-color-red = Rot
 
 # White
-# Source: ./src/components/profile_edit.rs:211
+# Source: ./src/components/profile_edit.rs:228
 ring-color-white = Weiß
 
 # Yellow
-# Source: ./src/components/profile_edit.rs:212
+# Source: ./src/components/profile_edit.rs:229
 ring-color-yellow = Gelb
 
 # Source: ./src/components/profile_list.rs:82
@@ -425,12 +559,10 @@ stats-until = bis
 # Source: ./src/components/statistics.rs:149
 stats-weekly-avg = Wöchentlich
 
-# Alive
-# Source: ./src/components/profile_detail.rs:288
+# Source: ./src/components/profile_detail.rs:322
 status-alive = Am Leben
 
-# Born
-# Source: ./src/components/profile_detail.rs:283
+# Source: ./src/components/profile_detail.rs:316
 status-born = Geboren
 
 # Source: ./src/components/home.rs:26
@@ -441,31 +573,25 @@ status-db-error = DB-Fehler: { $error }
 # Parameters: $count
 status-db-ready = Datenbank bereit ({ $count } Profile)
 
-# Died
-# Source: ./src/components/profile_detail.rs:315
+# Source: ./src/components/profile_detail.rs:354
 status-died = Gestorben
 
-# Healthy
-# Source: ./src/components/profile_detail.rs:298
+# Source: ./src/components/profile_detail.rs:334
 status-healthy = Gesund
 
 # Source: ./src/components/home.rs:9
 status-initializing = Initialisiere...
 
-# Marked for slaughter
-# Source: ./src/components/profile_detail.rs:304
+# Source: ./src/components/profile_detail.rs:341
 status-marked = Markiert
 
-# Sick
-# Source: ./src/components/profile_detail.rs:293
+# Source: ./src/components/profile_detail.rs:328
 status-sick = Krank
 
-# Slaughtered
-# Source: ./src/components/profile_detail.rs:310
+# Source: ./src/components/profile_detail.rs:348
 status-slaughtered = Geschlachtet
 
-# Profile successfully updated!
-# Source: ./src/components/profile_edit.rs:143
+# Source: ./src/components/profile_edit.rs:167
 success-profile-updated = Profil erfolgreich aktualisiert!
 
 # Source: ./src/components/settings.rs:510
@@ -570,4 +696,28 @@ sync-username = Benutzer
 # Waiting for login message
 # Source: ./src/components/settings.rs:674
 sync-waiting = Warte auf Anmeldung...
+
+# Source: ./src/components/event_edit.rs:128
+updated = Aktualisiert
+
+# Source: ./src/components/egg_history.rs:96
+weekday-fri = Fr
+
+# Source: ./src/components/egg_history.rs:92
+weekday-mon = Mo
+
+# Source: ./src/components/egg_history.rs:97
+weekday-sat = Sa
+
+# Source: ./src/components/egg_history.rs:98
+weekday-sun = So
+
+# Source: ./src/components/egg_history.rs:95
+weekday-thu = Do
+
+# Source: ./src/components/egg_history.rs:93
+weekday-tue = Di
+
+# Source: ./src/components/egg_history.rs:94
+weekday-wed = Mi
 
