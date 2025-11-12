@@ -3,6 +3,7 @@ use crate::image_processing;
 use crate::models::{Quail, RingColor};
 use crate::services;
 use crate::Screen;
+use dioxus::html::object::data;
 use dioxus::prelude::*;
 use dioxus_i18n::t;
 
@@ -115,12 +116,36 @@ pub fn ProfileCard(profile: Quail, on_click: EventHandler<()>) -> Element {
 
     // Lade Profilfoto über photo_service
     let image_data = use_resource(move || async move {
+        eprintln!("##### Lade Profilbild für UUID: {:?}", profile_uuid);
         if let Ok(conn) = database::init_database() {
-            if let Ok(Some(photo)) = services::photo_service::get_profile_photo(&conn, &profile_uuid) {
-                let path = photo.thumbnail_path.unwrap_or(photo.path);
-                return image_processing::image_path_to_data_url(&path).ok();
+            match services::photo_service::get_profile_photo(&conn, &profile_uuid) {
+                Ok(Some(photo)) => {
+                    let path = photo.thumbnail_path.unwrap_or(photo.path);
+                    eprintln!("Lade Profilbild von Pfad: {}", path);
+                    match image_processing::image_path_to_data_url(&path) {
+                        Ok(data_url) => {
+                            if data_url.starts_with("data:image/") {
+                                return Some(data_url);
+                            } else {
+                                eprintln!("Profilbild-Data-URL ungültig: {}", data_url);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Profilbild konnte nicht geladen werden: {}", e);
+                        }
+                    }
+                    eprintln!("Profilbild gefunden für UUID: {}", profile_uuid);
+                }
+                Ok(None) => {
+                    eprintln!("Kein Profilbild in DB gefunden für UUID: {}", profile_uuid);
+                }
+                Err(e) => {
+                    eprintln!("Fehler beim Laden des Profilbilds: {}", e);
+                }
             }
+            eprintln!("Kein Profilbild gefunden für UUID: {}", profile_uuid);
         }
+        eprintln!("Profilbild konnte nicht geladen werden.");
         None
     });
 
@@ -129,9 +154,10 @@ pub fn ProfileCard(profile: Quail, on_click: EventHandler<()>) -> Element {
     let profile_uuid_for_effect = profile.uuid;
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
-            if let Ok(status) =
-                services::profile_service::get_profile_current_status(&conn, &profile_uuid_for_effect)
-            {
+            if let Ok(status) = services::profile_service::get_profile_current_status(
+                &conn,
+                &profile_uuid_for_effect,
+            ) {
                 current_status.set(status);
             }
         }
@@ -149,18 +175,19 @@ pub fn ProfileCard(profile: Quail, on_click: EventHandler<()>) -> Element {
 
     rsx! {
         div { class: "profile-card", onclick: move |_| on_click.call(()),
-
             // Square Image Container
             div { class: "profile-image",
-                if let Some(data_url) = image_data() {
-                    // data_url ist ein String, direkt zuweisen statt Format-Interpolation
-                    img {
-                        src: data_url,
-                        alt: profile.name.clone(),
-                        style: "width: 100%; height: 100%; object-fit: cover;",
-                    }
-                } else {
-                    div { class: "profile-image-placeholder", "🐦" }
+                match image_data() {
+                    Some(Some(data_url)) => rsx! {
+                        img {
+                            src: data_url,
+                            alt: profile.name.clone(),
+                            style: "width: 100%; height: 100%; object-fit: cover;",
+                        }
+                    },
+                    None | Some(None) => rsx! {
+                        div { class: "profile-image-placeholder", "🐦" }
+                    },
                 }
 
                 // Overlay with name and gender

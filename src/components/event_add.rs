@@ -111,7 +111,7 @@ pub fn EventAdd(
                 }
                 select {
                     value: "{event_type().as_str()}",
-                    onchange: move |e| {
+                    oninput: move |e| {
                         let value = e.value();
                         let et = EventType::from_str(value.as_str());
                         event_type.set(et);

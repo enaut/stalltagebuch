@@ -114,25 +114,25 @@ pub fn EventEditScreen(
                     onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id.clone())),
                     "←"
                 }
-                h1 { style: "margin:0; font-size:22px; color:#0066cc;", { t!("event-edit-title") } }
+                h1 { style: "margin:0; font-size:22px; color:#0066cc;", {t!("event-edit-title")} }
             }
             if !error().is_empty() {
                 div { style: "background:#ffe6e6; padding:12px; border-radius:8px; color:#c00; margin-bottom:16px;",
-                    "⚠️ ",
-                    { error() }
+                    "⚠️ "
+                    {error()}
                 }
             }
             if success() {
                 div { style: "background:#e6ffe6; padding:12px; border-radius:8px; color:#060; margin-bottom:16px;",
-                    "✓ ",
-                    { t!("updated") }
+                    "✓ "
+                    {t!("updated")}
                 }
             }
             if let Some(_) = event() {
                 // Event type
                 div { style: "margin-bottom:16px;",
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
-                        { t!("field-type") }
+                        {t!("field-type")}
                     }
                     select {
                         value: event_type().as_str(),
@@ -141,19 +141,19 @@ pub fn EventEditScreen(
                             event_type.set(EventType::from_str(v.as_str()));
                         },
                         style: "width:100%; padding:10px; border:1px solid #ccc; border-radius:8px;",
-                        option { value: "born", "🐣 ", { t!("event-type-born") } }
-                        option { value: "alive", "✅ ", { t!("event-type-alive") } }
-                        option { value: "sick", "🤒 ", { t!("event-type-sick") } }
-                        option { value: "healthy", "💪 ", { t!("event-type-healthy") } }
-                        option { value: "marked_for_slaughter", "🥩 ", { t!("event-type-marked-for-slaughter") } }
-                        option { value: "slaughtered", "🥩 ", { t!("event-type-slaughtered") } }
-                        option { value: "died", "🪦 ", { t!("event-type-died") } }
+                        option { value: "born", {t!("event-type-born")} }
+                        option { value: "alive", {t!("event-type-alive")} }
+                        option { value: "sick", {t!("event-type-sick")} }
+                        option { value: "healthy", {t!("event-type-healthy")} }
+                        option { value: "marked_for_slaughter", {t!("event-type-marked-for-slaughter")} }
+                        option { value: "slaughtered", {t!("event-type-slaughtered")} }
+                        option { value: "died", {t!("event-type-died")} }
                     }
                 }
                 // Date
                 div { style: "margin-bottom:16px;",
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
-                        { t!("field-date") }
+                        {t!("field-date")}
                     }
                     input {
                         r#type: "date",
@@ -165,7 +165,7 @@ pub fn EventEditScreen(
                 // Notes
                 div { style: "margin-bottom:16px;",
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
-                        { t!("field-notes") }
+                        {t!("field-notes")}
                     }
                     textarea {
                         value: "{notes}",
@@ -176,7 +176,7 @@ pub fn EventEditScreen(
                 // Photos grid
                 div { style: "margin-bottom:20px;",
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
-                        { t!("photos-count", count: photos().len()) }
+                        {t!("photos-count", count : photos().len())}
                     }
                     if !photos().is_empty() {
                         div { style: "display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; margin-bottom:12px;",
@@ -207,7 +207,9 @@ pub fn EventEditScreen(
                                                     move |_| {
                                                         if let Ok(conn) = database::init_database() {
                                                             let _ = photo_service::delete_photo(&conn, &photo.uuid);
-                                                            if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_for_photo_delete.clone()) {
+                                                            if let Ok(e_uuid) = uuid::Uuid::parse_str(
+                                                                &event_id_for_photo_delete.clone(),
+                                                            ) {
                                                                 if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
                                                                     photos.set(list);
                                                                 }
@@ -241,40 +243,43 @@ pub fn EventEditScreen(
                                                 Ok(paths) => {
                                                     if let Ok(conn) = database::init_database() {
                                                         if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
-                                                        for p in paths {
-                                                            let ps = p.to_string_lossy().to_string();
-                                                            let th = image_processing::create_thumbnail(&ps).ok();
-                                                            let _ = photo_service::add_event_photo(
+                                                            for p in paths {
+                                                                let ps = p.to_string_lossy().to_string();
+                                                                let th = image_processing::create_thumbnail(&ps).ok();
+                                                                let _ = photo_service::add_event_photo(
+                                                                    &conn,
+                                                                    e_uuid,
+                                                                    ps,
+                                                                    th,
+                                                                );
+                                                            }
+                                                            if let Ok(list) = photo_service::list_event_photos(
                                                                 &conn,
-                                                                e_uuid,
-                                                                ps,
-                                                                th,
-                                                            );
-                                                        }
-                                                        if let Ok(list) = photo_service::list_event_photos(
-                                                            &conn,
-                                                            &e_uuid,
-                                                        ) {
-                                                            photos.set(list);
+                                                                &e_uuid,
+                                                            ) {
+                                                                photos.set(list);
+                                                            }
                                                         }
                                                     }
                                                 }
+                                                Err(e) => {
+                                                    error.set(t!("error-pick-images", error : e.to_string()))
+                                                }
                                             }
-                                            Err(e) => error.set(t!("error-pick-images", error: e.to_string())),
                                         }
-                                    }
-                                    #[cfg(not(target_os = "android"))]
-                                    {
-                                        error.set(t!("error-android-only-gallery"));
-                                    }
-                                    uploading.set(false);
-                                });
+                                        #[cfg(not(target_os = "android"))]
+                                        {
+                                            error.set(t!("error-android-only-gallery"));
+                                        }
+                                        uploading.set(false);
+                                    });
                                 }
                             },
                             if uploading() {
                                 "⏳"
                             } else {
-                                "🖼️ ", { t!("action-gallery") }
+                                "🖼️ "
+                                {t!("action-gallery")}
                             }
                         }
                         button {
@@ -293,38 +298,41 @@ pub fn EventEditScreen(
                                                 Ok(p) => {
                                                     if let Ok(conn) = database::init_database() {
                                                         if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
-                                                        let ps = p.to_string_lossy().to_string();
-                                                        let th = image_processing::create_thumbnail(&ps).ok();
-                                                        let _ = photo_service::add_event_photo(
-                                                            &conn,
-                                                            e_uuid,
-                                                            ps,
-                                                            th,
-                                                        );
-                                                        if let Ok(list) = photo_service::list_event_photos(
-                                                            &conn,
-                                                            &e_uuid,
-                                                        ) {
-                                                            photos.set(list);
+                                                            let ps = p.to_string_lossy().to_string();
+                                                            let th = image_processing::create_thumbnail(&ps).ok();
+                                                            let _ = photo_service::add_event_photo(
+                                                                &conn,
+                                                                e_uuid,
+                                                                ps,
+                                                                th,
+                                                            );
+                                                            if let Ok(list) = photo_service::list_event_photos(
+                                                                &conn,
+                                                                &e_uuid,
+                                                            ) {
+                                                                photos.set(list);
+                                                            }
                                                         }
                                                     }
                                                 }
+                                                Err(e) => {
+                                                    error.set(t!("error-capture-photo", error : e.to_string()))
+                                                }
                                             }
-                                            Err(e) => error.set(t!("error-capture-photo", error: e.to_string())),
                                         }
-                                    }
-                                    #[cfg(not(target_os = "android"))]
-                                    {
-                                        error.set(t!("error-android-only-camera"));
-                                    }
-                                    uploading.set(false);
-                                });
+                                        #[cfg(not(target_os = "android"))]
+                                        {
+                                            error.set(t!("error-android-only-camera"));
+                                        }
+                                        uploading.set(false);
+                                    });
                                 }
                             },
                             if uploading() {
                                 "⏳"
                             } else {
-                                "📷 ", { t!("action-photo") }
+                                "📷 "
+                                {t!("action-photo")}
                             }
                         }
                     }
@@ -334,7 +342,8 @@ pub fn EventEditScreen(
                     button {
                         style: "flex:1; padding:14px; background:#0066cc; color:white; border-radius:8px; font-weight:600;",
                         onclick: move |_| handle_save(),
-                        "✓ ", { t!("action-save") }
+                        "✓ "
+                        {t!("action-save")}
                     }
                     button {
                         style: "flex:1; padding:14px; background:#e0e0e0; color:#333; border-radius:8px; font-weight:600;",
@@ -342,16 +351,17 @@ pub fn EventEditScreen(
                             let quail_id_for_cancel = quail_id.clone();
                             move |_| on_navigate.call(Screen::ProfileDetail(quail_id_for_cancel.clone()))
                         },
-                        { t!("action-cancel") }
+                        {t!("action-cancel")}
                     }
                     button {
                         style: "flex:1; padding:14px; background:#ffdddd; color:#cc0000; border-radius:8px; font-weight:600;",
                         onclick: move |_| handle_delete(),
-                        "🗑️ ", { t!("action-delete") }
+                        "🗑️ "
+                        {t!("action-delete")}
                     }
                 }
             } else {
-                div { style: "padding:40px; text-align:center; color:#666;", { t!("loading-event") } }
+                div { style: "padding:40px; text-align:center; color:#666;", {t!("loading-event")} }
             }
         }
     }

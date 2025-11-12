@@ -53,12 +53,24 @@ pub fn AddProfileScreen(on_navigate: EventHandler<Screen>) -> Element {
                             let path_str = path.to_string_lossy().to_string();
                             let thumbnail_opt =
                                 crate::image_processing::create_thumbnail(&path_str).ok();
-                            let _ = crate::services::photo_service::add_quail_photo(
+                            match crate::services::photo_service::add_quail_photo(
                                 &conn,
                                 quail_id,
                                 path_str,
                                 thumbnail_opt,
-                            );
+                            ) {
+                                Ok(photo_uuid) => {
+                                    // Setze dieses Foto als Profilbild
+                                    let _ = crate::services::photo_service::set_profile_photo(
+                                        &conn,
+                                        &quail_id,
+                                        &photo_uuid,
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!("Fehler beim Hinzufügen des Profilfotos: {}", e);
+                                }
+                            }
                         }
                         success.set(true);
                         on_navigate.call(Screen::ProfileList);
