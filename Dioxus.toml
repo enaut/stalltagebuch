@@ -26,6 +26,9 @@ compile_sdk_version = 34
 # App icon (optional, place in assets/)
 # icon = "assets/icon.png"
 
+# Specify target architecture for OnePlus 8T (ARM64)
+target = "aarch64-linux-android"
+
 [web.app]
 
 # HTML title tag content

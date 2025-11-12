@@ -15,7 +15,6 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
     let mut show_fullscreen = use_signal(|| false);
     let mut uploading = use_signal(|| false);
     let mut upload_error = use_signal(|| String::new());
-    let mut show_add_menu = use_signal(|| false);
 
     // Alle Bilder der Wachtel laden
     use_effect(move || {
@@ -51,22 +50,26 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
         div { style: "padding: 16px; max-width: 800px; margin: 0 auto;",
             // Header
             div { style: "display: flex; align-items: center; gap: 12px; margin-bottom: 24px;",
-                button { style: "padding: 8px 16px; background: #e0e0e0; color: #333; border-radius: 8px; font-size: 16px;",
+                button {
+                    style: "padding: 8px 16px; background: #e0e0e0; color: #333; border-radius: 8px; font-size: 16px;",
                     onclick: move |_| on_navigate.call(Screen::ProfileList),
                     "← Zurück"
                 }
-                h1 { style: "margin: 0; font-size: 26px; color: #0066cc; font-weight: 700;", "Profil" }
+                h1 { style: "margin: 0; font-size: 26px; color: #0066cc; font-weight: 700;",
+                    "Profil"
+                }
             }
 
             if !error().is_empty() {
-                div { style: "background: #fee; border: 1px solid #fcc; color: #c33; padding: 12px; margin-bottom: 16px; border-radius: 8px; font-size: 14px;", "⚠️ {error}" }
+                div { style: "background: #fee; border: 1px solid #fcc; color: #c33; padding: 12px; margin-bottom: 16px; border-radius: 8px; font-size: 14px;",
+                    "⚠️ {error}"
+                }
             }
 
             if let Some(p) = profile() {
                 div { style: "display: flex; flex-direction: column; gap: 24px;",
                     // Bild mit Plus-Button - zeigt Profilfoto, klickbar für Vollbild-Galerie
-                    div {
-                        style: "width: 100%; aspect-ratio: 1/1; background: #f0f0f0; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative;",
+                    div { style: "width: 100%; aspect-ratio: 1/1; background: #f0f0f0; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative;",
                         // Hauptbild (klickbar für Galerie)
                         div {
                             style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer;",
@@ -76,45 +79,59 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                     show_fullscreen.set(true);
                                 }
                             },
-                        {
-                            let profile_photo_opt = photos().iter().find(|ph| ph.is_profile).cloned();
-                            if let Some(profile_photo) = profile_photo_opt {
-                                let path_to_use = profile_photo.thumbnail_path.clone().unwrap_or(profile_photo.path.clone());
-                                match image_processing::image_path_to_data_url(&path_to_use) {
-                                    Ok(data_url) => rsx! {
-                                        img { src: data_url, alt: p.name.clone(), style: "width:100%; height:100%; object-fit: cover;" }
-                                        if photos().len() > 1 {
-                                            div { style: "position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.7); color:white; padding:6px 12px; border-radius:16px; font-size:12px;",
-                                                "📷 {photos().len()}"
+                            {
+                                let profile_photo_opt = photos().iter().find(|ph| ph.is_profile).cloned();
+                                if let Some(profile_photo) = profile_photo_opt {
+                                    let path_to_use = profile_photo
+                                        .thumbnail_path
+                                        .clone()
+                                        .unwrap_or(profile_photo.path.clone());
+                                    match image_processing::image_path_to_data_url(&path_to_use) {
+                                        Ok(data_url) => rsx! {
+                                            img {
+                                                src: data_url,
+                                                alt: p.name.clone(),
+                                                style: "width:100%; height:100%; object-fit: cover;",
                                             }
-                                        }
-                                    },
-                                    Err(_) => rsx! {
+                                            if photos().len() > 1 {
+                                                div { style: "position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.7); color:white; padding:6px 12px; border-radius:16px; font-size:12px;",
+                                                    "📷 {photos().len()}"
+                                                }
+                                            }
+                                        },
+                                        Err(_) => rsx! {
+                                            div { style: "font-size: 48px; color:#999;", "🐦" }
+                                        },
+                                    }
+                                } else if !photos().is_empty() {
+                                    let first_photo = &photos()[0];
+                                    let path_to_use = first_photo
+                                        .thumbnail_path
+                                        .clone()
+                                        .unwrap_or(first_photo.path.clone());
+                                    match image_processing::image_path_to_data_url(&path_to_use) {
+                                        Ok(data_url) => rsx! {
+                                            img {
+                                                src: data_url,
+                                                alt: p.name.clone(),
+                                                style: "width:100%; height:100%; object-fit: cover;",
+                                            }
+                                            if photos().len() > 1 {
+                                                div { style: "position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.7); color:white; padding:6px 12px; border-radius:16px; font-size:12px;",
+                                                    "📷 {photos().len()}"
+                                                }
+                                            }
+                                        },
+                                        Err(_) => rsx! {
+                                            div { style: "font-size: 48px; color:#999;", "🐦" }
+                                        },
+                                    }
+                                } else {
+                                    rsx! {
                                         div { style: "font-size: 48px; color:#999;", "🐦" }
                                     }
-                                }
-                            } else if !photos().is_empty() {
-                                let first_photo = &photos()[0];
-                                let path_to_use = first_photo.thumbnail_path.clone().unwrap_or(first_photo.path.clone());
-                                match image_processing::image_path_to_data_url(&path_to_use) {
-                                    Ok(data_url) => rsx! {
-                                        img { src: data_url, alt: p.name.clone(), style: "width:100%; height:100%; object-fit: cover;" }
-                                        if photos().len() > 1 {
-                                            div { style: "position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.7); color:white; padding:6px 12px; border-radius:16px; font-size:12px;",
-                                                "📷 {photos().len()}"
-                                            }
-                                        }
-                                    },
-                                    Err(_) => rsx! {
-                                        div { style: "font-size: 48px; color:#999;", "🐦" }
-                                    }
-                                }
-                            } else {
-                                rsx! {
-                                    div { style: "font-size: 48px; color:#999;", "🐦" }
                                 }
                             }
-                        }
                         }
                         // Zwei halbtransparente Overlay-Buttons (Galerie Mehrfach / Kamera Einzel)
                         // Galerie (Mehrfachauswahl)
@@ -134,15 +151,32 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                                     let mut first = true;
                                                     for pth in paths {
                                                         let path_str = pth.to_string_lossy().to_string();
-                                                        let thumbnail_opt = crate::image_processing::create_thumbnail(&path_str).ok();
+                                                        let thumbnail_opt = crate::image_processing::create_thumbnail(
+                                                                &path_str,
+                                                            )
+                                                            .ok();
                                                         let is_profile = first && photos().is_empty();
-                                                        match crate::services::photo_service::add_wachtel_photo(&conn, wachtel_id, path_str, thumbnail_opt, is_profile) {
-                                                            Ok(_) => {},
-                                                            Err(e) => { upload_error.set(format!("Fehler beim Speichern: {}", e)); break; }
+                                                        match crate::services::photo_service::add_wachtel_photo(
+                                                            &conn,
+                                                            wachtel_id,
+                                                            path_str,
+                                                            thumbnail_opt,
+                                                            is_profile,
+                                                        ) {
+                                                            Ok(_) => {}
+                                                            Err(e) => {
+                                                                upload_error.set(format!("Fehler beim Speichern: {}", e));
+                                                                break;
+                                                            }
                                                         }
                                                         first = false;
                                                     }
-                                                    if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(&conn, wachtel_id) { photos.set(photo_list); }
+                                                    if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(
+                                                        &conn,
+                                                        wachtel_id,
+                                                    ) {
+                                                        photos.set(photo_list);
+                                                    }
                                                 }
                                             }
                                             Err(e) => upload_error.set(format!("Fehler bei Auswahl: {}", e)),
@@ -150,12 +184,17 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                     }
                                     #[cfg(not(target_os = "android"))]
                                     {
-                                        upload_error.set("Mehrfach-Auswahl nur auf Android verfügbar".to_string());
+                                        upload_error
+                                            .set("Mehrfach-Auswahl nur auf Android verfügbar".to_string());
                                     }
                                     uploading.set(false);
                                 });
                             },
-                            if uploading() { "⏳" } else { "🖼️ Galerie" }
+                            if uploading() {
+                                "⏳"
+                            } else {
+                                "🖼️ Galerie"
+                            }
                         }
                         // Kamera (Einzelfoto)
                         button {
@@ -172,13 +211,29 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                             Ok(path) => {
                                                 if let Ok(conn) = database::init_database() {
                                                     let path_str = path.to_string_lossy().to_string();
-                                                    let thumbnail_opt = crate::image_processing::create_thumbnail(&path_str).ok();
+                                                    let thumbnail_opt = crate::image_processing::create_thumbnail(
+                                                            &path_str,
+                                                        )
+                                                        .ok();
                                                     let is_profile = photos().is_empty();
-                                                    match crate::services::photo_service::add_wachtel_photo(&conn, wachtel_id, path_str, thumbnail_opt, is_profile) {
+                                                    match crate::services::photo_service::add_wachtel_photo(
+                                                        &conn,
+                                                        wachtel_id,
+                                                        path_str,
+                                                        thumbnail_opt,
+                                                        is_profile,
+                                                    ) {
                                                         Ok(_) => {
-                                                            if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(&conn, wachtel_id) { photos.set(photo_list); }
+                                                            if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(
+                                                                &conn,
+                                                                wachtel_id,
+                                                            ) {
+                                                                photos.set(photo_list);
+                                                            }
                                                         }
-                                                        Err(e) => upload_error.set(format!("Fehler beim Speichern: {}", e)),
+                                                        Err(e) => {
+                                                            upload_error.set(format!("Fehler beim Speichern: {}", e))
+                                                        }
                                                     }
                                                 }
                                             }
@@ -192,7 +247,11 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                     uploading.set(false);
                                 });
                             },
-                            if uploading() { "⏳" } else { "📷 Foto" }
+                            if uploading() {
+                                "⏳"
+                            } else {
+                                "📷 Foto"
+                            }
                         }
                     }
 
@@ -205,33 +264,55 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
 
                     // Basisinfos
                     div { style: "display: flex; flex-direction: column; gap: 12px;",
-                        h2 { style: "margin:0; font-size: 28px; color:#333; font-weight:600;", "{p.name}" }
+                        h2 { style: "margin:0; font-size: 28px; color:#333; font-weight:600;",
+                            "{p.name}"
+                        }
                         div { style: "display:flex; flex-wrap:wrap; gap:8px;",
-                            span { style: "padding:6px 14px; background:#e8f4f8; border-radius:16px; font-size:13px; color:#0066cc;", "ID {p.id.unwrap_or(0)}" }
-                            span { style: "padding:6px 14px; background:#fff3e0; border-radius:16px; font-size:13px; color:#ff8c00;", "{p.gender.display_name()}" }
+                            span { style: "padding:6px 14px; background:#e8f4f8; border-radius:16px; font-size:13px; color:#0066cc;",
+                                "ID {p.id.unwrap_or(0)}"
+                            }
+                            span { style: "padding:6px 14px; background:#fff3e0; border-radius:16px; font-size:13px; color:#ff8c00;",
+                                "{p.gender.display_name()}"
+                            }
                             // Status Badge basierend auf letztem Event
                             if let Some(latest_event) = events().first() {
                                 match latest_event.event_type {
                                     crate::models::EventType::Geboren => rsx! {
-                                        span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;", "🐣 Geboren" }
+                                        span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
+                                            "🐣 Geboren"
+                                        }
                                     },
                                     crate::models::EventType::AmLeben => rsx! {
-                                        span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;", "✅ Am Leben" }
+                                        span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
+                                            "✅ Am Leben"
+                                        }
                                     },
                                     crate::models::EventType::Krank => rsx! {
-                                        span { style: "padding:6px 14px; background:#ffe0e0; border-radius:16px; font-size:13px; color:#cc3333;", "🤒 Krank" }
+                                        span { style: "padding:6px 14px; background:#ffe0e0; border-radius:16px; font-size:13px; color:#cc3333;",
+                                            "🤒 Krank"
+                                        }
                                     },
                                     crate::models::EventType::Gesund => rsx! {
-                                        span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;", "💪 Gesund" }
+                                        span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
+                                            "💪 Gesund"
+                                        }
                                     },
-                                    crate::models::EventType::MarkiertZumSchlachten => rsx! {
-                                        span { style: "padding:6px 14px; background:#fff3e0; border-radius:16px; font-size:13px; color:#ff8800;", "🥩 Markiert" }
-                                    },
+                                    crate::models::EventType::MarkiertZumSchlachten => {
+                                        rsx! {
+                                            span { style: "padding:6px 14px; background:#fff3e0; border-radius:16px; font-size:13px; color:#ff8800;",
+                                                "🥩 Markiert"
+                                            }
+                                        }
+                                    }
                                     crate::models::EventType::Geschlachtet => rsx! {
-                                        span { style: "padding:6px 14px; background:#f0f0f0; border-radius:16px; font-size:13px; color:#666;", "🥩 Geschlachtet" }
+                                        span { style: "padding:6px 14px; background:#f0f0f0; border-radius:16px; font-size:13px; color:#666;",
+                                            "🥩 Geschlachtet"
+                                        }
                                     },
                                     crate::models::EventType::Gestorben => rsx! {
-                                        span { style: "padding:6px 14px; background:#f0f0f0; border-radius:16px; font-size:13px; color:#666;", "🪦 Gestorben" }
+                                        span { style: "padding:6px 14px; background:#f0f0f0; border-radius:16px; font-size:13px; color:#666;",
+                                            "🪦 Gestorben"
+                                        }
                                     },
                                 }
                             }
@@ -239,21 +320,31 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                     }
                     // Detail Grid
                     div { style: "display:grid; gap:16px;",
-                        div { style: "padding:14px; background:#f5f5f5; border-radius:8px;", div { style:"font-size:11px; color:#666; font-weight:600; margin-bottom:4px;", "UUID" } div { style:"font-size:11px; color:#999; word-break:break-all; font-family:monospace;", "{p.uuid}" } }
+                        div { style: "padding:14px; background:#f5f5f5; border-radius:8px;",
+                            div { style: "font-size:11px; color:#666; font-weight:600; margin-bottom:4px;",
+                                "UUID"
+                            }
+                            div { style: "font-size:11px; color:#999; word-break:break-all; font-family:monospace;",
+                                "{p.uuid}"
+                            }
+                        }
                     }
 
                     // Events Timeline
                     div { style: "margin-top:24px;",
                         div { style: "display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;",
-                            h3 { style: "margin:0; font-size:18px; color:#333; font-weight:600;", "📅 Ereignisse" }
+                            h3 { style: "margin:0; font-size:18px; color:#333; font-weight:600;",
+                                "📅 Ereignisse"
+                            }
                             button {
                                 style: "padding:8px 16px; background:#0066cc; color:white; border-radius:8px; font-size:14px; font-weight:500;",
                                 onclick: move |_| {
                                     if let Some(p) = profile() {
-                                        on_navigate.call(Screen::EventAdd {
-                                            wachtel_id: p.id.unwrap_or(0),
-                                            wachtel_name: p.name.clone()
-                                        });
+                                        on_navigate
+                                            .call(Screen::EventAdd {
+                                                wachtel_id: p.id.unwrap_or(0),
+                                                wachtel_name: p.name.clone(),
+                                            });
                                     }
                                 },
                                 "+ Ereignis"
@@ -271,7 +362,13 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                         key: "{event.id.unwrap_or(0)}",
                                         style: "padding:14px; background:white; border:1px solid #e0e0e0; border-radius:8px; cursor:pointer;",
                                         onclick: move |_| {
-                                            if let Some(eid) = event.id { on_navigate.call(Screen::EventEdit { event_id: eid, wachtel_id }); }
+                                            if let Some(eid) = event.id {
+                                                on_navigate
+                                                    .call(Screen::EventEdit {
+                                                        event_id: eid,
+                                                        wachtel_id,
+                                                    });
+                                            }
                                         },
                                         div { style: "display:flex; gap:10px; align-items:center; margin-bottom:8px;",
                                             span { style: "font-size:20px;",
@@ -286,12 +383,18 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                                 }
                                             }
                                             div {
-                                                div { style: "font-size:14px; font-weight:600; color:#333;", "{event.event_type.display_name()}" }
-                                                div { style: "font-size:12px; color:#666;", {event.event_date.format("%d.%m.%Y").to_string()} }
+                                                div { style: "font-size:14px; font-weight:600; color:#333;",
+                                                    "{event.event_type.display_name()}"
+                                                }
+                                                div { style: "font-size:12px; color:#666;",
+                                                    {event.event_date.format("%d.%m.%Y").to_string()}
+                                                }
                                             }
                                         }
                                         if let Some(notes) = &event.notes {
-                                            div { style: "font-size:13px; color:#555; line-height:1.4; white-space:pre-wrap;", "{notes}" }
+                                            div { style: "font-size:13px; color:#555; line-height:1.4; white-space:pre-wrap;",
+                                                "{notes}"
+                                            }
                                         }
                                     }
                                 }
@@ -300,10 +403,18 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                     }
 
                     // Bearbeiten Button
-                    button { class:"btn-primary", style:"width:100%; padding:14px; font-size:16px; font-weight:600; margin-top:24px;", onclick: move |_| on_navigate.call(Screen::ProfileEdit(wachtel_id)), "✏️ Bearbeiten" }
+                    button {
+                        class: "btn-primary",
+                        style: "width:100%; padding:14px; font-size:16px; font-weight:600; margin-top:24px;",
+                        onclick: move |_| on_navigate.call(Screen::ProfileEdit(wachtel_id)),
+                        "✏️ Bearbeiten"
+                    }
                 }
             } else {
-                div { style:"padding:48px; text-align:center;", div { style:"font-size:48px; margin-bottom:16px;", "⏳" } div { style:"color:#666;", "Lade Profil..." } }
+                div { style: "padding:48px; text-align:center;",
+                    div { style: "font-size:48px; margin-bottom:16px;", "⏳" }
+                    div { style: "color:#666;", "Lade Profil..." }
+                }
             }
 
             // Vollbild-Galerie Overlay
@@ -315,7 +426,9 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                     div {
                         style: "padding:16px; display:flex; justify-content:space-between; align-items:center;",
                         onclick: move |e| e.stop_propagation(),
-                        div { style:"color:white; font-size:18px; font-weight:600;", "{current_photo_index() + 1} / {photos().len()}" }
+                        div { style: "color:white; font-size:18px; font-weight:600;",
+                            "{current_photo_index() + 1} / {photos().len()}"
+                        }
                         button {
                             style: "background:rgba(255,255,255,0.2); color:white; padding:8px 16px; border-radius:8px; font-size:16px;",
                             onclick: move |_| show_fullscreen.set(false),
@@ -337,8 +450,8 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                     }
                                 },
                                 Err(_) => rsx! {
-                                    div { style:"color:white; font-size:48px;", "⚠️" }
-                                }
+                                    div { style: "color:white; font-size:48px;", "⚠️" }
+                                },
                             }
                         }
                     }

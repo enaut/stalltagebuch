@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use jni::objects::{JClass, JObject, JString, JValue};
 #[cfg(target_os = "android")]
 use ndk_context::android_context;
-
+#[allow(dead_code)]
 const MAIN_ACTIVITY_CLASS: &str = "dev/dioxus/main/MainActivity";
 
 #[cfg(target_os = "android")]
@@ -312,28 +312,28 @@ pub fn has_camera_permission() -> Result<bool, AppError> {
         .z()
         .map_err(|e| AppError::PermissionDenied(format!("Boolean conversion failed: {}", e)))
 }
-
+#[allow(dead_code)]
 #[cfg(not(target_os = "android"))]
 pub fn pick_image() -> Result<PathBuf, AppError> {
     Err(AppError::PermissionDenied(
         "Image picker not available on this platform".to_string(),
     ))
 }
-
+#[allow(dead_code)]
 #[cfg(not(target_os = "android"))]
 pub fn pick_images() -> Result<Vec<PathBuf>, AppError> {
     Err(AppError::PermissionDenied(
         "Multi image picker not available on this platform".to_string(),
     ))
 }
-
+#[allow(dead_code)]
 #[cfg(not(target_os = "android"))]
 pub fn capture_photo() -> Result<PathBuf, AppError> {
     Err(AppError::PermissionDenied(
         "Camera not available on this platform".to_string(),
     ))
 }
-
+#[allow(dead_code)]
 #[cfg(not(target_os = "android"))]
 pub fn has_camera_permission() -> Result<bool, AppError> {
     Ok(false)

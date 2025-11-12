@@ -42,6 +42,13 @@ mkdir -p "$(dirname "$FILE_PATHS_DEBUG")"
 cp "$FILE_PATHS_SOURCE" "$FILE_PATHS_DEBUG"
 echo "✓ file_paths.xml copied to debug"
 
+echo "Copying network_security_config.xml to debug build..."
+NETWORK_CONFIG_SOURCE="./android/res/xml/network_security_config.xml"
+NETWORK_CONFIG_DEBUG="./target/dx/stalltagebuch/debug/android/app/app/src/main/res/xml/network_security_config.xml"
+mkdir -p "$(dirname "$NETWORK_CONFIG_DEBUG")"
+cp "$NETWORK_CONFIG_SOURCE" "$NETWORK_CONFIG_DEBUG"
+echo "✓ network_security_config.xml copied to debug"
+
 # Patch build.gradle.kts to use correct package name and SDK versions
 GRADLE_FILE_DEBUG="./target/dx/stalltagebuch/debug/android/app/app/build.gradle.kts"
 if [ -f "$GRADLE_FILE_DEBUG" ]; then
@@ -77,6 +84,12 @@ if [ -d "./target/dx/stalltagebuch/release/android/app/app/src/main/kotlin/dev/d
     mkdir -p "$(dirname "$FILE_PATHS_RELEASE")"
     cp "$FILE_PATHS_SOURCE" "$FILE_PATHS_RELEASE"
     echo "✓ file_paths.xml copied to release"
+    
+    echo "Copying network_security_config.xml to release build..."
+    NETWORK_CONFIG_RELEASE="./target/dx/stalltagebuch/release/android/app/app/src/main/res/xml/network_security_config.xml"
+    mkdir -p "$(dirname "$NETWORK_CONFIG_RELEASE")"
+    cp "$NETWORK_CONFIG_SOURCE" "$NETWORK_CONFIG_RELEASE"
+    echo "✓ network_security_config.xml copied to release"
     
     # Patch build.gradle.kts for release
     GRADLE_FILE_RELEASE="./target/dx/stalltagebuch/release/android/app/app/build.gradle.kts"

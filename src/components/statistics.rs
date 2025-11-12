@@ -184,7 +184,7 @@ pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
                 button {
                     class: "btn-primary",
                     style: "width: 100%;",
-                    onclick: move |_| on_navigate.call(Screen::EggTracking),
+                    onclick: move |_| on_navigate.call(Screen::EggTracking(None)),
                     "➕ Eier eintragen"
                 }
             }

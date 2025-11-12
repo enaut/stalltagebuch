@@ -75,6 +75,16 @@ button:disabled {
     background: #008800;
 }
 
+/* Secondary button */
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
 /* Danger button */
 .btn-danger {
     background: #cc0000;
@@ -83,6 +93,18 @@ button:disabled {
 
 .btn-danger:hover {
     background: #aa0000;
+}
+
+/* Back button */
+.btn-back {
+    background: #6c757d;
+    color: white;
+    padding: 8px 16px;
+    font-size: 14px;
+}
+
+.btn-back:hover {
+    background: #5a6268;
 }
 
 /* Input styling */
@@ -118,6 +140,17 @@ textarea:focus {
 /* Smooth scrolling */
 * {
     scroll-behavior: smooth;
+}
+
+/* Spinner animation */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Profile Grid Layout */

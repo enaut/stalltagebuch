@@ -18,9 +18,11 @@ GRADLE_FILE="$DX_APP_DIR/app/build.gradle.kts"
 APK_OUT="$DX_APP_DIR/app/build/outputs/apk/debug/app-debug.apk"
 
 # 1) Dioxus Build (vorher Altlasten entfernen, damit dx build nicht an einem alten BuildConfig-Alias scheitert)
-echo "[1/5] Clean alte Android-Ausgabe und dx build --platform android"
+echo "[1/5] Clean alte Android-Ausgabe und dx build --platform android --target aarch64-linux-android"
 rm -rf "$DX_APP_DIR" || true
-dx build --platform android
+# Setze den korrekten Linker für Android ARM64
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="/home/dietrich/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
+dx build --platform android --target aarch64-linux-android
 
 # 2) Dateien kopieren
 echo "[2/5] Kopiere Custom-Dateien"
@@ -28,6 +30,7 @@ mkdir -p "$KOTLIN_DIR" "$RES_XML_DIR"
 cp "$ROOT_DIR/android/MainActivity.kt" "$KOTLIN_DIR/MainActivity.kt"
 cp "$ROOT_DIR/android/AndroidManifest.xml" "$APP_SRC_MAIN/AndroidManifest.xml"
 cp "$ROOT_DIR/android/res/xml/file_paths.xml" "$RES_XML_DIR/file_paths.xml"
+cp "$ROOT_DIR/android/res/xml/network_security_config.xml" "$RES_XML_DIR/network_security_config.xml"
 
 # BuildConfig typealias, damit Logger.kt (dev.dioxus.main) auf das App-BuildConfig zugreifen kann
 cat > "$KOTLIN_DIR/BuildConfig.kt" <<'EOF'

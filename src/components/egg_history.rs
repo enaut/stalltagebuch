@@ -5,7 +5,6 @@ use crate::{database, services, models::EggRecord, Screen};
 pub fn EggHistoryScreen(on_navigate: EventHandler<Screen>) -> Element {
     let mut records = use_signal(|| Vec::<EggRecord>::new());
     let mut status_message = use_signal(|| String::new());
-    let mut show_confirm_delete = use_signal(|| None::<String>);
     
     // Load records
     let mut load_records = move || {
@@ -32,22 +31,6 @@ pub fn EggHistoryScreen(on_navigate: EventHandler<Screen>) -> Element {
         load_records();
     });
     
-    let mut handle_delete = move |date: String| {
-        match database::init_database() {
-            Ok(conn) => {
-                if let Err(e) = services::delete_egg_record(&conn, &date) {
-                    status_message.set(format!("❌ Löschen fehlgeschlagen: {}", e));
-                } else {
-                    show_confirm_delete.set(None);
-                    load_records();
-                }
-            }
-            Err(e) => {
-                status_message.set(format!("❌ DB-Fehler: {}", e));
-            }
-        }
-    };
-    
     rsx! {
         div {
             style: "padding: 16px; max-width: 600px; margin: 0 auto; min-height: 100vh; background: #f5f5f5;",
@@ -62,7 +45,7 @@ pub fn EggHistoryScreen(on_navigate: EventHandler<Screen>) -> Element {
                 button {
                     class: "btn-success",
                     style: "padding: 10px 20px; font-size: 16px; font-weight: 500;",
-                    onclick: move |_| on_navigate.call(Screen::EggTracking),
+                    onclick: move |_| on_navigate.call(Screen::EggTracking(None)),
                     "+ Neu"
                 }
             }
@@ -85,11 +68,7 @@ pub fn EggHistoryScreen(on_navigate: EventHandler<Screen>) -> Element {
                 for record in records() {
                     EggRecordCard {
                         record: record.clone(),
-                        on_edit: move |_date| on_navigate.call(Screen::EggTracking),
-                        on_delete_confirm: move |date| show_confirm_delete.set(Some(date)),
-                        show_confirm: show_confirm_delete() == Some(record.record_date.format("%Y-%m-%d").to_string()),
-                        on_delete: move |date| handle_delete(date),
-                        on_cancel_delete: move || show_confirm_delete.set(None),
+                        on_edit: move |date| on_navigate.call(Screen::EggTracking(Some(date))),
                     }
                 }
             }
@@ -101,10 +80,6 @@ pub fn EggHistoryScreen(on_navigate: EventHandler<Screen>) -> Element {
 fn EggRecordCard(
     record: EggRecord,
     on_edit: EventHandler<String>,
-    on_delete_confirm: EventHandler<String>,
-    show_confirm: bool,
-    on_delete: EventHandler<String>,
-    on_cancel_delete: EventHandler<()>,
 ) -> Element {
     let date_str = record.record_date.format("%Y-%m-%d").to_string();
     let display_date = record.record_date.format("%d.%m.%Y").to_string();
@@ -124,7 +99,8 @@ fn EggRecordCard(
     rsx! {
         div {
             class: "card",
-            style: "padding: 16px; margin: 8px 0; border-left: 4px solid #ff8c00;",
+            style: "padding: 16px; margin: 8px 0; border-left: 4px solid #ff8c00; cursor: pointer;",
+            onclick: move |_| on_edit.call(date_str.clone()),
             
             div {
                 style: "display: flex; justify-content: space-between; align-items: start;",
@@ -156,27 +132,8 @@ fn EggRecordCard(
                 }
                 
                 div {
-                    style: "display: flex; gap: 8px; margin-left: 12px;",
-                    
-                    if show_confirm {
-                        button {
-                            class: "btn-danger",
-                            style: "padding: 8px 16px; font-size: 14px; font-weight: 600;",
-                            onclick: move |_| on_delete.call(date_str.clone()),
-                            "✔ Bestätigen"
-                        }
-                        button {
-                            style: "padding: 8px 16px; background: #e0e0e0; color: #666; font-size: 14px; font-weight: 600;",
-                            onclick: move |_| on_cancel_delete.call(()),
-                            "✕"
-                        }
-                    } else {
-                        button {
-                            style: "padding: 8px 16px; background: #ffe6e6; color: #cc0000; font-size: 20px; border-radius: 8px;",
-                            onclick: move |_| on_delete_confirm.call(date_str.clone()),
-                            "🗑️"
-                        }
-                    }
+                    style: "margin-left: 12px; color: #999; font-size: 18px;",
+                    "✏️"
                 }
             }
         }

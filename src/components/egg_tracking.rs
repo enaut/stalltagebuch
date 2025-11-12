@@ -1,16 +1,19 @@
-use dioxus::prelude::*;
-use crate::{database, services, models::EggRecord, Screen};
+use crate::{database, models::EggRecord, services, Screen};
 use chrono::Local;
+use dioxus::prelude::*;
 
 #[component]
-pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
-    let mut date_str = use_signal(|| Local::now().format("%Y-%m-%d").to_string());
+pub fn EggTrackingScreen(date: Option<String>, on_navigate: EventHandler<Screen>) -> Element {
+    let mut date_str = use_signal(|| {
+        date.clone()
+            .unwrap_or_else(|| Local::now().format("%Y-%m-%d").to_string())
+    });
     let mut total_eggs = use_signal(|| String::new());
     let mut notes = use_signal(|| String::new());
     let mut error = use_signal(|| None::<String>);
     let mut success = use_signal(|| false);
     let mut existing_record = use_signal(|| None::<EggRecord>);
-    
+
     // Load existing record for selected date
     let mut load_record = move || {
         let date_value = date_str();
@@ -35,16 +38,16 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
             }
         }
     };
-    
+
     // Load on mount and when date changes
     use_effect(move || {
         load_record();
     });
-    
+
     let mut handle_submit = move || {
         error.set(None);
         success.set(false);
-        
+
         // Validate eggs count
         let eggs_str = total_eggs();
         let eggs_trimmed = eggs_str.trim();
@@ -52,7 +55,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
             error.set(Some("Eierzahl darf nicht leer sein".to_string()));
             return;
         }
-        
+
         let eggs_count = match eggs_trimmed.parse::<i32>() {
             Ok(n) if n >= 0 => n,
             Ok(_) => {
@@ -64,7 +67,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                 return;
             }
         };
-        
+
         // Parse date
         let date_value = date_str();
         let date_trimmed = date_value.trim();
@@ -75,7 +78,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                 return;
             }
         };
-        
+
         // Notes
         let notes_value = notes();
         let notes_trimmed = notes_value.trim();
@@ -84,11 +87,19 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
         } else {
             Some(notes_trimmed.to_string())
         };
-        
+
         // Save to database
         match database::init_database() {
             Ok(conn) => {
-                let result = if existing_record().is_some() {
+                let result = if eggs_count == 0 {
+                    // Delete record if eggs count is 0
+                    if existing_record().is_some() {
+                        services::delete_egg_record(&conn, &date_trimmed)
+                    } else {
+                        // Nothing to delete
+                        Ok(())
+                    }
+                } else if existing_record().is_some() {
                     // Update existing record
                     let mut record = existing_record().unwrap();
                     record.total_eggs = eggs_count;
@@ -96,19 +107,18 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                     services::update_egg_record(&conn, &record)
                 } else {
                     // Create new record
-                    let record = EggRecord {
-                        id: None,
-                        record_date,
-                        total_eggs: eggs_count,
-                        notes: notes_opt,
-                    };
+                    let record = EggRecord::new(record_date, eggs_count);
+                    let mut record = record;
+                    record.notes = notes_opt;
                     services::add_egg_record(&conn, &record).map(|_| ())
                 };
-                
+
                 match result {
                     Ok(_) => {
                         success.set(true);
                         load_record(); // Reload to update existing_record state
+                                       // Nach erfolgreichem Speichern zur Historie zurückkehren
+                        on_navigate.call(Screen::EggHistory);
                     }
                     Err(e) => {
                         error.set(Some(format!("Fehler beim Speichern: {}", e)));
@@ -120,11 +130,11 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
             }
         }
     };
-    
+
     rsx! {
         div {
             style: "padding: 16px; max-width: 600px; margin: 0 auto; min-height: 100vh; background: #f5f5f5;",
-            
+
             // Header
             div {
                 style: "display: flex; align-items: center; margin-bottom: 24px;",
@@ -133,7 +143,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                     "🥚 Eier eintragen"
                 }
             }
-            
+
             // Error Message
             if let Some(err) = error() {
                 div {
@@ -141,7 +151,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                     "⚠️ {err}"
                 }
             }
-            
+
             // Success Message
             if success() {
                 div {
@@ -149,7 +159,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                     "✅ Eintrag erfolgreich gespeichert!"
                 }
             }
-            
+
             // Status
             if existing_record().is_some() {
                 div {
@@ -157,11 +167,11 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                     "📝 Eintrag für dieses Datum existiert bereits - Änderungen überschreiben den bestehenden Eintrag"
                 }
             }
-            
+
             // Form
             div {
                 class: "card",
-                
+
                 // Date Field
                 div {
                     style: "margin-bottom: 20px;",
@@ -184,7 +194,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                         "Format: YYYY-MM-DD"
                     }
                 }
-                
+
                 // Total Eggs Field
                 div {
                     style: "margin-bottom: 20px;",
@@ -201,7 +211,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                         oninput: move |e| total_eggs.set(e.value()),
                     }
                 }
-                
+
                 // Notes Field
                 div {
                     style: "margin-bottom: 20px;",
@@ -217,7 +227,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                         oninput: move |e| notes.set(e.value()),
                     }
                 }
-                
+
                 // Action Buttons
                 div {
                     style: "display: flex; gap: 12px; margin-top: 24px;",
@@ -229,7 +239,7 @@ pub fn EggTrackingScreen(on_navigate: EventHandler<Screen>) -> Element {
                     }
                 }
             }
-            
+
             // Quick Links
             div {
                 style: "margin-top: 16px; display: flex; gap: 12px;",

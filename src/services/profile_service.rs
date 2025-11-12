@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::models::{Gender, Ringfarbe, Wachtel};
+use crate::models::Wachtel;
 use rusqlite::Connection;
 
 /// Erstellt ein neues Wachtel-Profil in der Datenbank
@@ -29,17 +29,7 @@ pub fn get_profile(conn: &Connection, id: i64) -> Result<Wachtel, AppError> {
     )?;
 
     let wachtel = stmt
-        .query_row([id], |row| {
-            Ok(Wachtel {
-                id: Some(row.get(0)?),
-                uuid: row.get(1)?,
-                name: row.get(2)?,
-                gender: Gender::from_str(&row.get::<_, String>(3)?),
-                ring_color: row
-                    .get::<_, Option<String>>(4)?
-                    .map(|s| Ringfarbe::from_str(&s)),
-            })
-        })
+        .query_row([id], |row| Wachtel::try_from(row))
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => {
                 AppError::NotFound("Wachtel-Profil".to_string())
@@ -90,6 +80,7 @@ pub fn delete_profile(conn: &Connection, id: i64) -> Result<(), AppError> {
 }
 
 /// Listet alle Wachtel-Profile auf, optional gefiltert nach Name (Standard: nur lebende)
+#[allow(dead_code)]
 pub fn list_profiles(
     conn: &Connection,
     name_filter: Option<&str>,
@@ -124,15 +115,7 @@ pub fn list_profiles_with_status(
 
     let wachtels = stmt
         .query_map(rusqlite::params_from_iter(params), |row| {
-            Ok(Wachtel {
-                id: Some(row.get(0)?),
-                uuid: row.get(1)?,
-                name: row.get(2)?,
-                gender: Gender::from_str(&row.get::<_, String>(3)?),
-                ring_color: row
-                    .get::<_, Option<String>>(4)?
-                    .map(|s| Ringfarbe::from_str(&s)),
-            })
+            Wachtel::try_from(row)
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -181,14 +164,14 @@ mod tests {
     fn test_create_and_get_profile() {
         let conn = setup_test_db();
         let mut wachtel = Wachtel::new("Testwachtel".to_string());
-        wachtel.gender = Gender::Female;
+        wachtel.gender = crate::models::Gender::Female;
 
         let id = create_profile(&conn, &wachtel).unwrap();
         assert!(id > 0);
 
         let loaded = get_profile(&conn, id).unwrap();
         assert_eq!(loaded.name, "Testwachtel");
-        assert_eq!(loaded.gender, Gender::Female);
+        assert_eq!(loaded.gender, crate::models::Gender::Female);
     }
 
     #[test]

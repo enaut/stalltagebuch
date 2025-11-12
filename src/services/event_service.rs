@@ -11,20 +11,16 @@ pub fn create_event(
     event_date: NaiveDate,
     notes: Option<String>,
 ) -> Result<i64, AppError> {
-    let event = WachtelEvent {
-        id: None,
-        wachtel_id,
-        event_type: event_type.clone(),
-        event_date,
-        notes,
-    };
+    let mut event = WachtelEvent::new(wachtel_id, event_type, event_date);
+    event.notes = notes;
 
     event.validate()?;
 
     conn.execute(
-        "INSERT INTO wachtel_events (wachtel_id, event_type, event_date, notes)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO wachtel_events (uuid, wachtel_id, event_type, event_date, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
+            event.uuid,
             event.wachtel_id,
             event.event_type.as_str(),
             event.event_date.to_string(),
@@ -43,41 +39,27 @@ pub fn get_events_for_wachtel(
     wachtel_id: i64,
 ) -> Result<Vec<WachtelEvent>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, wachtel_id, event_type, event_date, notes
+        "SELECT id, uuid, wachtel_id, event_type, event_date, notes
          FROM wachtel_events
          WHERE wachtel_id = ?1
          ORDER BY event_date DESC, id DESC",
     )?;
 
     let events = stmt
-        .query_map(params![wachtel_id], |row| {
-            Ok(WachtelEvent {
-                id: Some(row.get(0)?),
-                wachtel_id: row.get(1)?,
-                event_type: EventType::from_str(&row.get::<_, String>(2)?),
-                event_date: NaiveDate::parse_from_str(&row.get::<_, String>(3)?, "%Y-%m-%d")
-                    .map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            3,
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        )
-                    })?,
-                notes: row.get(4)?,
-            })
-        })?
+        .query_map(params![wachtel_id], |row| WachtelEvent::try_from(row))?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(events)
 }
 
 /// Gibt das letzte Ereignis für eine Wachtel zurück
+#[allow(dead_code)]
 pub fn get_latest_event(
     conn: &Connection,
     wachtel_id: i64,
 ) -> Result<Option<WachtelEvent>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, wachtel_id, event_type, event_date, notes
+        "SELECT id, uuid, wachtel_id, event_type, event_date, notes
          FROM wachtel_events
          WHERE wachtel_id = ?1
          ORDER BY event_date DESC, id DESC
@@ -85,28 +67,14 @@ pub fn get_latest_event(
     )?;
 
     let event = stmt
-        .query_row(params![wachtel_id], |row| {
-            Ok(WachtelEvent {
-                id: Some(row.get(0)?),
-                wachtel_id: row.get(1)?,
-                event_type: EventType::from_str(&row.get::<_, String>(2)?),
-                event_date: NaiveDate::parse_from_str(&row.get::<_, String>(3)?, "%Y-%m-%d")
-                    .map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            3,
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        )
-                    })?,
-                notes: row.get(4)?,
-            })
-        })
+        .query_row(params![wachtel_id], |row| WachtelEvent::try_from(row))
         .optional()?;
 
     Ok(event)
 }
 
 /// Gibt das Geburtsdatum einer Wachtel zurück (aus dem "geboren" Event)
+#[allow(dead_code)]
 pub fn get_birth_date(conn: &Connection, wachtel_id: i64) -> Result<Option<NaiveDate>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT event_date
@@ -127,8 +95,8 @@ pub fn get_birth_date(conn: &Connection, wachtel_id: i64) -> Result<Option<Naive
         Ok(None)
     }
 }
-
 /// Aktualisiert ein bestehendes Ereignis
+#[allow(dead_code)]
 pub fn update_event(
     conn: &Connection,
     event_id: i64,
@@ -160,25 +128,10 @@ pub fn delete_event(conn: &Connection, event_id: i64) -> Result<(), AppError> {
 /// Hole ein einzelnes Ereignis per ID
 pub fn get_event_by_id(conn: &Connection, event_id: i64) -> Result<Option<WachtelEvent>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, wachtel_id, event_type, event_date, notes FROM wachtel_events WHERE id = ?1",
+        "SELECT id, uuid, wachtel_id, event_type, event_date, notes FROM wachtel_events WHERE id = ?1",
     )?;
     let evt = stmt
-        .query_row(params![event_id], |row| {
-            Ok(WachtelEvent {
-                id: Some(row.get(0)?),
-                wachtel_id: row.get(1)?,
-                event_type: EventType::from_str(&row.get::<_, String>(2)?),
-                event_date: NaiveDate::parse_from_str(&row.get::<_, String>(3)?, "%Y-%m-%d")
-                    .map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            3,
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        )
-                    })?,
-                notes: row.get(4)?,
-            })
-        })
+        .query_row(params![event_id], |row| WachtelEvent::try_from(row))
         .optional()?;
     Ok(evt)
 }
@@ -195,6 +148,7 @@ pub fn update_event_full(
         .ok_or_else(|| AppError::NotFound("Ereignis nicht gefunden".to_string()))?;
     let candidate = WachtelEvent {
         id: Some(event_id),
+        uuid: existing.uuid.clone(),
         wachtel_id: existing.wachtel_id,
         event_type: event_type.clone(),
         event_date,

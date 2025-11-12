@@ -11,6 +11,17 @@ use jni::JNIEnv;
 #[cfg(target_os = "android")]
 use ndk_context::android_context;
 
+/// Gibt das App-Verzeichnis zurück (für Fotos etc.)
+#[cfg(target_os = "android")]
+pub fn get_app_directory() -> Option<PathBuf> {
+    android_files_dir().ok()
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn get_app_directory() -> Option<PathBuf> {
+    std::env::current_dir().ok()
+}
+
 /// Gibt den Pfad zum Datenbank-Verzeichnis zurück
 pub fn get_database_path() -> PathBuf {
     #[cfg(target_os = "android")]
@@ -107,49 +118,5 @@ pub fn test_connection() -> Result<(), AppError> {
         return Err(AppError::Database(rusqlite::Error::QueryReturnedNoRows));
     }
     
-    Ok(())
-}
-
-// Legacy-Funktionen für Abwärtskompatibilität mit PoC-Code
-#[deprecated(note = "Use profile_service instead")]
-pub fn add_test_entry(conn: &Connection, content: &str) -> Result<i64, AppError> {
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS test_entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-    
-    conn.execute(
-        "INSERT INTO test_entries (content) VALUES (?1)",
-        [content],
-    )?;
-    
-    Ok(conn.last_insert_rowid())
-}
-
-#[deprecated(note = "Use profile_service instead")]
-pub fn get_test_entries(conn: &Connection) -> Result<Vec<(i64, String, String)>, AppError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, content, created_at FROM test_entries ORDER BY created_at DESC"
-    )?;
-    
-    let entries = stmt.query_map([], |row| {
-        Ok((
-            row.get(0)?,
-            row.get(1)?,
-            row.get(2)?,
-        ))
-    })?
-    .collect::<Result<Vec<_>, _>>()?;
-    
-    Ok(entries)
-}
-
-#[deprecated(note = "Use profile_service instead")]
-pub fn clear_test_entries(conn: &Connection) -> Result<(), AppError> {
-    conn.execute("DELETE FROM test_entries", [])?;
     Ok(())
 }

@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use rusqlite::Row;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -57,6 +58,7 @@ impl Ringfarbe {
         }
     }
 
+    #[allow(dead_code)]
     pub fn display_name(&self) -> &str {
         match self {
             Ringfarbe::Lila => "Lila",
@@ -72,6 +74,7 @@ impl Ringfarbe {
         }
     }
 
+    #[allow(dead_code)]
     pub fn all() -> &'static [Ringfarbe] {
         static ALL: [Ringfarbe; 10] = [
             Ringfarbe::Lila,
@@ -97,16 +100,6 @@ pub enum Gender {
     Unknown,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum WachtelStatus {
-    AmLeben,
-    Krank,
-    Gestorben,
-    Geschlachtet,
-    MarkiertZumSchlachten,
-}
-
 impl Gender {
     pub fn as_str(&self) -> &str {
         match self {
@@ -129,39 +122,6 @@ impl Gender {
             Gender::Male => "Männlich",
             Gender::Female => "Weiblich",
             Gender::Unknown => "Unbekannt",
-        }
-    }
-}
-
-impl WachtelStatus {
-    pub fn as_str(&self) -> &str {
-        match self {
-            WachtelStatus::AmLeben => "am_leben",
-            WachtelStatus::Krank => "krank",
-            WachtelStatus::Gestorben => "gestorben",
-            WachtelStatus::Geschlachtet => "geschlachtet",
-            WachtelStatus::MarkiertZumSchlachten => "markiert_zum_schlachten",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "am_leben" => WachtelStatus::AmLeben,
-            "krank" => WachtelStatus::Krank,
-            "gestorben" => WachtelStatus::Gestorben,
-            "geschlachtet" => WachtelStatus::Geschlachtet,
-            "markiert_zum_schlachten" => WachtelStatus::MarkiertZumSchlachten,
-            _ => WachtelStatus::AmLeben,
-        }
-    }
-
-    pub fn display_name(&self) -> &str {
-        match self {
-            WachtelStatus::AmLeben => "Am Leben",
-            WachtelStatus::Krank => "Krank",
-            WachtelStatus::Gestorben => "Gestorben",
-            WachtelStatus::Geschlachtet => "Geschlachtet",
-            WachtelStatus::MarkiertZumSchlachten => "Markiert zum Schlachten",
         }
     }
 }
@@ -195,6 +155,26 @@ impl Wachtel {
         }
 
         Ok(())
+    }
+}
+
+impl<'r> TryFrom<&Row<'r>> for Wachtel {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &Row<'r>) -> Result<Self, Self::Error> {
+        let id: i64 = row.get(0)?;
+        let uuid: String = row.get(1)?;
+        let name: String = row.get(2)?;
+        let gender_str: String = row.get(3)?;
+        let ring_color_opt: Option<String> = row.get(4)?;
+
+        Ok(Wachtel {
+            id: Some(id),
+            uuid,
+            name,
+            gender: Gender::from_str(&gender_str),
+            ring_color: ring_color_opt.map(|s| Ringfarbe::from_str(&s)),
+        })
     }
 }
 

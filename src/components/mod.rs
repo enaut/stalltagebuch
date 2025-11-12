@@ -8,6 +8,7 @@ pub mod profile_add;
 pub mod profile_detail;
 pub mod profile_edit;
 pub mod profile_list;
+pub mod settings;
 pub mod statistics;
 
 pub use egg_history::EggHistoryScreen;
@@ -20,4 +21,5 @@ pub use profile_add::AddProfileScreen;
 pub use profile_detail::ProfileDetailScreen;
 pub use profile_edit::ProfileEditScreen;
 pub use profile_list::ProfileListScreen;
+pub use settings::SettingsScreen;
 pub use statistics::StatisticsScreen;

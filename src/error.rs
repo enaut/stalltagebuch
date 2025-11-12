@@ -16,6 +16,7 @@ pub enum AppError {
     /// Bildverarbeitungsfehler
     ImageProcessing(String),
     /// Allgemeiner Fehler
+    #[allow(dead_code)]
     Other(String),
 }
 
@@ -53,8 +54,13 @@ impl AppError {
     #[allow(dead_code)]
     pub fn user_message(&self) -> String {
         match self {
-            AppError::Database(_) => "Ein Datenbankfehler ist aufgetreten. Bitte versuchen Sie es erneut.".to_string(),
-            AppError::Filesystem(_) => "Fehler beim Zugriff auf Dateien. Bitte prüfen Sie die App-Berechtigungen.".to_string(),
+            AppError::Database(_) => {
+                "Ein Datenbankfehler ist aufgetreten. Bitte versuchen Sie es erneut.".to_string()
+            }
+            AppError::Filesystem(_) => {
+                "Fehler beim Zugriff auf Dateien. Bitte prüfen Sie die App-Berechtigungen."
+                    .to_string()
+            }
             AppError::Validation(msg) => msg.clone(),
             AppError::NotFound(msg) => format!("{} wurde nicht gefunden.", msg),
             AppError::PermissionDenied(msg) => format!("Berechtigung erforderlich: {}", msg),

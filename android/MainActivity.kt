@@ -135,15 +135,10 @@ class MainActivity : WryActivity() {
         takePictureLauncher = registerForActivityResult(
             ActivityResultContracts.TakePicture()
         ) { success: Boolean ->
-            if (success && photoUri != null) {
+            if (success && currentPhotoFile != null) {
                 // Foto wurde erfolgreich aufgenommen
-                // photoUri.path gibt uns den richtigen Pfad zur Datei
-                val path = photoUri?.let { uri ->
-                    // Extrahiere den tatsächlichen Dateipfad aus der Content URI
-                    val file = File(getExternalFilesDir("photos"), uri.lastPathSegment ?: "")
-                    file.absolutePath
-                }
-                currentPhotoPath = path
+                // Nutze den absoluten Pfad der erstellten Datei
+                currentPhotoPath = currentPhotoFile?.absolutePath
                 currentPhotoPaths = null
                 lastError = null
             } else {
@@ -151,6 +146,7 @@ class MainActivity : WryActivity() {
                 currentPhotoPath = null
                 currentPhotoPaths = null
             }
+            currentPhotoFile = null
         }
     }
     
@@ -319,10 +315,13 @@ class MainActivity : WryActivity() {
         }
     }
     
+    private var currentPhotoFile: File? = null
+    
     private fun launchCameraInternal() {
         try {
             // Erstelle temporäre Datei für Foto
             val photoFile = createImageFile()
+            currentPhotoFile = photoFile
             
             // Erstelle URI mit FileProvider
             photoUri = FileProvider.getUriForFile(

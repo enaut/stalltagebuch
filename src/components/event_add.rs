@@ -19,7 +19,7 @@ pub fn EventAdd(
             .to_string()
     });
     let mut notes = use_signal(|| String::new());
-    let mut photos = use_signal(|| Vec::<String>::new());
+    let photos = use_signal(|| Vec::<String>::new());
     let mut error_message = use_signal(|| None::<String>);
 
     let on_save = move |_| {
@@ -76,9 +76,7 @@ pub fn EventAdd(
     };
 
     rsx! {
-        div {
-            class: "container",
-            style: "padding: 20px;",
+        div { class: "container", style: "padding: 20px;",
 
             h2 { "Ereignis hinzufügen" }
             p { style: "color: #666; margin-bottom: 20px;", "für {wachtel_name}" }
@@ -91,12 +89,9 @@ pub fn EventAdd(
                 }
             }
 
-            div {
-                class: "form-group",
-                style: "margin-bottom: 20px;",
+            div { class: "form-group", style: "margin-bottom: 20px;",
 
-                label {
-                    style: "display: block; margin-bottom: 8px; font-weight: bold;",
+                label { style: "display: block; margin-bottom: 8px; font-weight: bold;",
                     "Ereignistyp"
                 }
                 select {
@@ -127,12 +122,9 @@ pub fn EventAdd(
                 }
             }
 
-            div {
-                class: "form-group",
-                style: "margin-bottom: 20px;",
+            div { class: "form-group", style: "margin-bottom: 20px;",
 
-                label {
-                    style: "display: block; margin-bottom: 8px; font-weight: bold;",
+                label { style: "display: block; margin-bottom: 8px; font-weight: bold;",
                     "Datum"
                 }
                 input {
@@ -143,25 +135,20 @@ pub fn EventAdd(
                 }
             }
 
-            div {
-                class: "form-group",
-                style: "margin-bottom: 20px;",
+            div { class: "form-group", style: "margin-bottom: 20px;",
 
-                label {
-                    style: "display: block; margin-bottom: 8px; font-weight: bold;",
+                label { style: "display: block; margin-bottom: 8px; font-weight: bold;",
                     "Notizen (optional)"
                 }
                 textarea {
                     value: "{notes}",
                     oninput: move |e| notes.set(e.value()),
                     style: "width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; min-height: 100px;",
-                    placeholder: "Weitere Informationen zum Ereignis..."
+                    placeholder: "Weitere Informationen zum Ereignis...",
                 }
             }
 
-            div {
-                class: "button-group",
-                style: "display: flex; gap: 10px;",
+            div { class: "button-group", style: "display: flex; gap: 10px;",
 
                 button {
                     onclick: on_save,

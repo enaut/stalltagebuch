@@ -1,11 +1,14 @@
 use crate::error::AppError;
 use chrono::NaiveDate;
+use rusqlite::types::Type;
+use rusqlite::Row;
 use serde::{Deserialize, Serialize};
 
 /// Ereignis im Leben einer Wachtel (Status-Änderung, Geburt, etc.)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WachtelEvent {
     pub id: Option<i64>,
+    pub uuid: String,
     pub wachtel_id: i64,
     pub event_type: EventType,
     pub event_date: NaiveDate,
@@ -63,11 +66,13 @@ impl EventType {
     }
 
     /// Returns true if this event type represents a final state (death)
+    #[allow(dead_code)]
     pub fn is_final(&self) -> bool {
         matches!(self, EventType::Geschlachtet | EventType::Gestorben)
     }
 
     /// Returns true if this event type is a health-related status
+    #[allow(dead_code)]
     pub fn is_health_status(&self) -> bool {
         matches!(self, EventType::Krank | EventType::Gesund)
     }
@@ -78,6 +83,7 @@ impl WachtelEvent {
     pub fn new(wachtel_id: i64, event_type: EventType, event_date: NaiveDate) -> Self {
         Self {
             id: None,
+            uuid: uuid::Uuid::new_v4().to_string(),
             wachtel_id,
             event_type,
             event_date,
@@ -105,5 +111,30 @@ impl WachtelEvent {
         }
 
         Ok(())
+    }
+}
+
+impl<'r> TryFrom<&Row<'r>> for WachtelEvent {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &Row<'r>) -> Result<Self, Self::Error> {
+        let id: i64 = row.get(0)?;
+        let uuid: String = row.get(1)?;
+        let wachtel_id: i64 = row.get(2)?;
+        let event_type_str: String = row.get(3)?;
+        let event_date_str: String = row.get(4)?;
+        let notes: Option<String> = row.get(5)?;
+
+        let event_date = NaiveDate::parse_from_str(&event_date_str, "%Y-%m-%d")
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(4, Type::Text, Box::new(e)))?;
+
+        Ok(WachtelEvent {
+            id: Some(id),
+            uuid,
+            wachtel_id,
+            event_type: EventType::from_str(&event_type_str),
+            event_date,
+            notes,
+        })
     }
 }
