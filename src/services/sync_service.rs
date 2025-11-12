@@ -2,7 +2,7 @@ use crate::error::AppError;
 use crate::models::SyncSettings;
 use rusqlite::{Connection, Result};
 
-/// Lädt die Synchronisierungseinstellungen aus der Datenbank
+/// Loads the synchronization settings from the database
 pub fn load_sync_settings(conn: &Connection) -> Result<Option<SyncSettings>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT id, server_url, username, app_password, remote_path, enabled, last_sync, created_at, updated_at 
@@ -32,12 +32,9 @@ pub fn load_sync_settings(conn: &Connection) -> Result<Option<SyncSettings>, App
     }
 }
 
-/// Speichert oder aktualisiert die Synchronisierungseinstellungen
-pub fn save_sync_settings(
-    conn: &Connection,
-    settings: &SyncSettings,
-) -> Result<i64, AppError> {
-    // Prüfe ob bereits Einstellungen existieren
+/// Saves or updates the synchronization settings
+pub fn save_sync_settings(conn: &Connection, settings: &SyncSettings) -> Result<i64, AppError> {
+    // Check if settings already exist
     let existing = load_sync_settings(conn)?;
 
     if let Some(existing) = existing {
@@ -73,7 +70,7 @@ pub fn save_sync_settings(
     }
 }
 
-/// Aktualisiert den Zeitstempel der letzten Synchronisierung
+/// Updates the timestamp of the last synchronization
 pub fn update_last_sync(conn: &Connection) -> Result<(), AppError> {
     conn.execute(
         "UPDATE sync_settings SET last_sync = CURRENT_TIMESTAMP WHERE id = (SELECT MAX(id) FROM sync_settings)",
@@ -82,7 +79,7 @@ pub fn update_last_sync(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Aktiviert oder deaktiviert die Synchronisierung
+/// Enables or disables synchronization
 pub fn set_sync_enabled(conn: &Connection, enabled: bool) -> Result<(), AppError> {
     conn.execute(
         "UPDATE sync_settings SET enabled = ?1 WHERE id = (SELECT MAX(id) FROM sync_settings)",
@@ -91,7 +88,7 @@ pub fn set_sync_enabled(conn: &Connection, enabled: bool) -> Result<(), AppError
     Ok(())
 }
 
-/// Löscht alle Synchronisierungseinstellungen
+/// Deletes all synchronization settings
 pub fn delete_sync_settings(conn: &Connection) -> Result<(), AppError> {
     conn.execute("DELETE FROM sync_settings", [])?;
     Ok(())

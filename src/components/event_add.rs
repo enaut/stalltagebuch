@@ -1,17 +1,13 @@
 use crate::database;
-use crate::models::wachtel_event::EventType;
+use crate::models::quail_event::EventType;
 use crate::services::event_service;
 use crate::Screen;
 use chrono::NaiveDate;
 use dioxus::prelude::*;
 
 #[component]
-pub fn EventAdd(
-    wachtel_id: i64,
-    wachtel_name: String,
-    on_navigate: EventHandler<Screen>,
-) -> Element {
-    let mut event_type = use_signal(|| EventType::AmLeben);
+pub fn EventAdd(quail_id: i64, quail_name: String, on_navigate: EventHandler<Screen>) -> Element {
+    let mut event_type = use_signal(|| EventType::Alive);
     let mut event_date = use_signal(|| {
         chrono::Local::now()
             .date_naive()
@@ -43,7 +39,7 @@ pub fn EventAdd(
 
                     match event_service::create_event(
                         &conn,
-                        wachtel_id,
+                        quail_id,
                         event_type(),
                         parsed_date,
                         notes_opt,
@@ -61,7 +57,7 @@ pub fn EventAdd(
                                     thumbnail_opt,
                                 );
                             }
-                            on_navigate.call(Screen::ProfileDetail(wachtel_id));
+                            on_navigate.call(Screen::ProfileDetail(quail_id));
                         }
                         Err(e) => {
                             error_message.set(Some(format!("Fehler beim Speichern: {}", e)));
@@ -79,7 +75,7 @@ pub fn EventAdd(
         div { class: "container", style: "padding: 20px;",
 
             h2 { "Ereignis hinzufügen" }
-            p { style: "color: #666; margin-bottom: 20px;", "für {wachtel_name}" }
+            p { style: "color: #666; margin-bottom: 20px;", "für {quail_name}" }
 
             if let Some(error) = error_message() {
                 div {
@@ -99,14 +95,14 @@ pub fn EventAdd(
                     onchange: move |e| {
                         let value = e.value();
                         let et = match value.as_str() {
-                            "Geboren" => EventType::Geboren,
-                            "AmLeben" => EventType::AmLeben,
-                            "Krank" => EventType::Krank,
-                            "Gesund" => EventType::Gesund,
-                            "MarkiertZumSchlachten" => EventType::MarkiertZumSchlachten,
-                            "Geschlachtet" => EventType::Geschlachtet,
-                            "Gestorben" => EventType::Gestorben,
-                            _ => EventType::AmLeben,
+                            "Geboren" => EventType::Born,
+                            "AmLeben" => EventType::Alive,
+                            "Krank" => EventType::Sick,
+                            "Gesund" => EventType::Healthy,
+                            "MarkiertZumSchlachten" => EventType::MarkedForSlaughter,
+                            "Geschlachtet" => EventType::Slaughtered,
+                            "Gestorben" => EventType::Died,
+                            _ => EventType::Alive,
                         };
                         event_type.set(et);
                     },
@@ -157,7 +153,7 @@ pub fn EventAdd(
                 }
 
                 button {
-                    onclick: move |_| on_navigate.call(Screen::ProfileDetail(wachtel_id)),
+                    onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id)),
                     style: "flex: 1; padding: 12px; background-color: #f44336; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer;",
                     "Abbrechen"
                 }

@@ -1,19 +1,19 @@
 use crate::error::AppError;
-use crate::models::{Photo, PhotoMetadata, WachtelMetadata, EventMetadata};
-use crate::models::{Wachtel, WachtelEvent};
+use crate::models::{EventMetadata, Photo, PhotoMetadata, QuailMetadata};
+use crate::models::{Quail, QuailEvent};
 use crate::services::sync_service;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 
-/// Eindeutige Geräte-ID (sollte beim ersten Start generiert und gespeichert werden)
+/// Unique device ID (should be generated and stored on first start)
 fn get_device_id() -> String {
-    // TODO: Sollte einmalig generiert und in den Einstellungen gespeichert werden
+    // TODO: Should be generated once and stored in settings
     uuid::Uuid::new_v4().to_string()
 }
 
-/// Berechnet SHA256 Hash einer Datei
+/// Calculates SHA256 hash of a file
 fn calculate_checksum(file_path: &Path) -> Result<String, AppError> {
     let data = fs::read(file_path)?;
     let mut hasher = Sha256::new();
@@ -22,46 +22,44 @@ fn calculate_checksum(file_path: &Path) -> Result<String, AppError> {
     Ok(format!("sha256:{:x}", result))
 }
 
-/// Berechnet relativen Pfad für ein Photo basierend auf Zuordnung
-fn get_relative_photo_path(
-    conn: &Connection,
-    photo: &Photo,
-) -> Result<String, AppError> {
+/// Calculates relative path for a photo based on association
+fn get_relative_photo_path(conn: &Connection, photo: &Photo) -> Result<String, AppError> {
     let filename = Path::new(&photo.path)
         .file_name()
-        .ok_or_else(|| AppError::Other("Ungültiger Foto-Pfad".to_string()))?
+        .ok_or_else(|| AppError::Other("Invalid photo path".to_string()))?
         .to_string_lossy()
         .to_string();
-    
+
     // Event-Foto?
     if let Some(event_id) = photo.event_id {
-        let (event_uuid, wachtel_uuid): (String, String) = conn.query_row(
-            "SELECT e.uuid, w.uuid FROM wachtel_events e 
-             JOIN wachtels w ON e.wachtel_id = w.id 
+        let (event_uuid, quail_uuid): (String, String) = conn.query_row(
+            "SELECT e.uuid, w.uuid FROM quail_events e 
+             JOIN quails w ON e.quail_id = w.id 
              WHERE e.id = ?1",
             [event_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
-        return Ok(format!("wachtels/{}/events/{}/photos/{}", 
-            wachtel_uuid, event_uuid, filename));
+        return Ok(format!(
+            "quails/{}/events/{}/photos/{}",
+            quail_uuid, event_uuid, filename
+        ));
     }
-    
-    // Wachtel-Foto (inkl. Profilfoto - alle im photos/ Ordner)
-    if let Some(wachtel_id) = photo.wachtel_id {
-        let wachtel_uuid: String = conn.query_row(
-            "SELECT uuid FROM wachtels WHERE id = ?1",
-            [wachtel_id],
-            |row| row.get(0),
-        )?;
-        
-        return Ok(format!("wachtels/{}/photos/{}", wachtel_uuid, filename));
+
+    // Quail photo (incl. profile photo - all in photos/ folder)
+    if let Some(quail_id) = photo.quail_id {
+        let quail_uuid: String =
+            conn.query_row("SELECT uuid FROM quails WHERE id = ?1", [quail_id], |row| {
+                row.get(0)
+            })?;
+
+        return Ok(format!("quails/{}/photos/{}", quail_uuid, filename));
     }
-    
-    // Verwaistes Foto
+
+    // Orphaned photo
     Ok(format!("orphaned_photos/{}", filename))
 }
 
-/// Erstellt TOML Metadata für ein Photo
+/// Creates TOML metadata for a photo
 pub fn create_photo_metadata(
     conn: &Connection,
     photo: &Photo,
@@ -70,32 +68,34 @@ pub fn create_photo_metadata(
     let checksum = calculate_checksum(file_path)?;
     let device_id = get_device_id();
     let relative_path = get_relative_photo_path(conn, photo)?;
-    
-    // Hole Wachtel-UUID und Event-UUID falls vorhanden
-    let (wachtel_uuid, event_uuid, notes) = if let Some(event_id) = photo.event_id {
+
+    // Get quail UUID and event UUID if available
+    let (quail_uuid, event_uuid, notes) = if let Some(event_id) = photo.event_id {
         let result: Result<(String, String, Option<String>), _> = conn.query_row(
-            "SELECT w.uuid, e.uuid, e.notes FROM wachtel_events e 
-             JOIN wachtels w ON e.wachtel_id = w.id 
+            "SELECT w.uuid, e.uuid, e.notes FROM quail_events e 
+             JOIN quails w ON e.quail_id = w.id 
              WHERE e.id = ?1",
             [event_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         );
-        result.map(|(w, e, n)| (Some(w), Some(e), n)).unwrap_or((None, None, None))
-    } else if let Some(wachtel_id) = photo.wachtel_id {
-        let wachtel_uuid: Option<String> = conn.query_row(
-            "SELECT uuid FROM wachtels WHERE id = ?1",
-            [wachtel_id],
-            |row| row.get(0),
-        ).ok();
-        (wachtel_uuid, None, None)
+        result
+            .map(|(w, e, n)| (Some(w), Some(e), n))
+            .unwrap_or((None, None, None))
+    } else if let Some(quail_id) = photo.quail_id {
+        let quail_uuid: Option<String> = conn
+            .query_row("SELECT uuid FROM quails WHERE id = ?1", [quail_id], |row| {
+                row.get(0)
+            })
+            .ok();
+        (quail_uuid, None, None)
     } else {
         (None, None, None)
     };
 
     Ok(PhotoMetadata {
         photo_id: photo.uuid.clone(),
-        wachtel_id: photo.wachtel_id,
-        wachtel_uuid,
+        quail_id: photo.quail_id,
+        quail_uuid,
         event_id: photo.event_id,
         event_uuid,
         notes,
@@ -107,25 +107,24 @@ pub fn create_photo_metadata(
     })
 }
 
-/// Erstellt TOML Metadata für eine Wachtel
-pub fn create_wachtel_metadata(
-    conn: &Connection,
-    wachtel: &Wachtel,
-) -> Result<WachtelMetadata, AppError> {
+/// Creates TOML metadata for a quail
+pub fn create_quail_metadata(conn: &Connection, quail: &Quail) -> Result<QuailMetadata, AppError> {
     let device_id = get_device_id();
-    
-    // Prüfe ob Profilfoto vorhanden
-    let has_profile_photo: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM photos WHERE wachtel_id = ?1 AND is_profile = 1",
-        [wachtel.id],
-        |row| row.get(0),
-    ).unwrap_or(false);
-    
-    Ok(WachtelMetadata {
-        uuid: wachtel.uuid.clone(),
-        name: wachtel.name.clone(),
-        gender: wachtel.gender.as_str().to_string(),
-        ring_color: wachtel.ring_color.as_ref().map(|r| r.as_str().to_string()),
+
+    // Check if profile photo exists
+    let has_profile_photo: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM photos WHERE quail_id = ?1 AND is_profile = 1",
+            [quail.id],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    Ok(QuailMetadata {
+        uuid: quail.uuid.clone(),
+        name: quail.name.clone(),
+        gender: quail.gender.as_str().to_string(),
+        ring_color: quail.ring_color.as_ref().map(|r| r.as_str().to_string()),
         device_id,
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
@@ -133,23 +132,23 @@ pub fn create_wachtel_metadata(
     })
 }
 
-/// Erstellt TOML Metadata für ein Event
+/// Creates TOML metadata for an event
 pub fn create_event_metadata(
     conn: &Connection,
-    event: &WachtelEvent,
+    event: &QuailEvent,
 ) -> Result<EventMetadata, AppError> {
     let device_id = get_device_id();
-    
-    // Hole Wachtel-UUID
-    let wachtel_uuid: String = conn.query_row(
-        "SELECT uuid FROM wachtels WHERE id = ?1",
-        [event.wachtel_id],
+
+    // Get quail UUID
+    let quail_uuid: String = conn.query_row(
+        "SELECT uuid FROM quails WHERE id = ?1",
+        [event.quail_id],
         |row| row.get(0),
     )?;
-    
+
     Ok(EventMetadata {
         uuid: event.uuid.clone(),
-        wachtel_uuid,
+        quail_uuid,
         event_type: event.event_type.as_str().to_string(),
         event_date: event.event_date.format("%Y-%m-%d").to_string(),
         notes: event.notes.clone(),
@@ -158,35 +157,36 @@ pub fn create_event_metadata(
     })
 }
 
-/// Listet alle Fotos auf, die noch nicht synchronisiert wurden
+/// Lists all photos that have not been synchronized yet
 pub fn list_pending_photos(conn: &Connection) -> Result<Vec<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT p.id, p.uuid, p.wachtel_id, p.event_id, p.path, p.thumbnail_path, p.is_profile
+        "SELECT p.id, p.uuid, p.quail_id, p.event_id, p.path, p.thumbnail_path, p.is_profile
          FROM photos p
          LEFT JOIN sync_queue sq ON p.uuid = sq.photo_uuid
          WHERE sq.photo_uuid IS NULL OR sq.status IN ('pending', 'failed')
-         ORDER BY p.id"
+         ORDER BY p.id",
     )?;
-    
+
     let rows = stmt.query_map([], |row| {
         let relative_path: String = row.get(4)?;
         let relative_thumb: Option<String> = row.get(5)?;
-        
+
         Ok(Photo {
             id: row.get(0)?,
             uuid: row.get(1)?,
-            wachtel_id: row.get(2)?,
+            quail_id: row.get(2)?,
             event_id: row.get(3)?,
             path: crate::services::photo_service::get_absolute_photo_path(&relative_path),
-            thumbnail_path: relative_thumb.map(|t| crate::services::photo_service::get_absolute_photo_path(&t)),
+            thumbnail_path: relative_thumb
+                .map(|t| crate::services::photo_service::get_absolute_photo_path(&t)),
             is_profile: matches!(row.get::<_, i64>(6)?, 1),
         })
     })?;
-    
+
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-/// Fügt ein Photo zur Sync-Queue hinzu
+/// Adds a photo to the sync queue
 pub fn add_to_sync_queue(conn: &Connection, photo_uuid: &str) -> Result<(), AppError> {
     conn.execute(
         "INSERT OR IGNORE INTO sync_queue (photo_uuid, status) VALUES (?1, 'pending')",
@@ -195,7 +195,7 @@ pub fn add_to_sync_queue(conn: &Connection, photo_uuid: &str) -> Result<(), AppE
     Ok(())
 }
 
-/// Aktualisiert den Status eines Photos in der Sync-Queue
+/// Updates the status of a photo in the sync queue
 pub fn update_sync_status(
     conn: &Connection,
     photo_uuid: &str,
@@ -214,7 +214,7 @@ pub fn update_sync_status(
     Ok(())
 }
 
-/// Lädt ein Photo und seine Metadata auf den Server hoch
+/// Uploads a photo and its metadata to the server
 pub async fn upload_photo(
     conn: &Connection,
     photo: &Photo,
@@ -223,7 +223,7 @@ pub async fn upload_photo(
     app_password: &str,
     remote_path: &str,
 ) -> Result<(), AppError> {
-    // Baue WebDAV Client
+    // Build WebDAV client
     let webdav_url = format!(
         "{}/remote.php/dav/files/{}",
         server_url.trim_end_matches('/'),
@@ -237,28 +237,29 @@ pub async fn upload_photo(
             app_password.to_string(),
         ))
         .build()
-        .map_err(|e| AppError::Other(format!("WebDAV Client Fehler: {:?}", e)))?;
+        .map_err(|e| AppError::Other(format!("WebDAV client error: {:?}", e)))?;
 
-    // Hole App-Directory
+    // Get app directory
     #[cfg(target_os = "android")]
     let app_dir = crate::database::get_app_directory()
-        .ok_or_else(|| AppError::NotFound("App-Verzeichnis nicht gefunden".to_string()))?;
-    
+        .ok_or_else(|| AppError::NotFound("App directory not found".to_string()))?;
+
     #[cfg(not(target_os = "android"))]
     let app_dir = std::env::current_dir()?;
 
     let photo_file = app_dir.join(&photo.path);
-    
+
     if !photo_file.exists() {
         return Err(AppError::NotFound(format!(
-            "Foto nicht gefunden: {}",
+            "Photo not found: {}",
             photo.path
         )));
     }
 
-    // Erstelle Metadata
+    // Create metadata
     let metadata = create_photo_metadata(conn, photo, &photo_file)?;
-    let metadata_toml = metadata.to_toml()
+    let metadata_toml = metadata
+        .to_toml()
         .map_err(|e| AppError::Other(format!("TOML Serialisierung fehlgeschlagen: {}", e)))?;
 
     // Lade Foto-Daten
@@ -270,7 +271,7 @@ pub async fn upload_photo(
         remote_path.trim_end_matches('/'),
         metadata.relative_path
     );
-    
+
     // Erstelle alle notwendigen Ordner
     let path_parts: Vec<&str> = metadata.relative_path.split('/').collect();
     for i in 1..path_parts.len() {
@@ -282,7 +283,7 @@ pub async fn upload_photo(
         // Versuche Ordner zu erstellen (ignoriere Fehler wenn bereits existiert)
         let _ = client.mkcol(&dir_path).await;
     }
-    
+
     // Upload Foto
     client
         .put(&photo_remote_path, photo_data)
@@ -299,7 +300,7 @@ pub async fn upload_photo(
     Ok(())
 }
 
-/// Prüft welche Fotos bereits auf dem Server sind
+/// Checks which photos are already on the server
 pub async fn list_remote_photos(
     server_url: &str,
     username: &str,
@@ -319,15 +320,15 @@ pub async fn list_remote_photos(
             app_password.to_string(),
         ))
         .build()
-        .map_err(|e| AppError::Other(format!("WebDAV Client Fehler: {:?}", e)))?;
+        .map_err(|e| AppError::Other(format!("WebDAV client error: {:?}", e)))?;
 
-    // Liste Dateien im Remote-Verzeichnis
+    // List files in remote directory
     let list = client
         .list(remote_path, reqwest_dav::Depth::Number(1))
         .await
-        .map_err(|e| AppError::Other(format!("WebDAV List fehlgeschlagen: {:?}", e)))?;
+        .map_err(|e| AppError::Other(format!("WebDAV list failed: {:?}", e)))?;
 
-    // Filtere nur .jpg Dateien und extrahiere UUIDs
+    // Filter only .jpg files and extract UUIDs
     let mut uuids = Vec::new();
     for item in list {
         if let reqwest_dav::list_cmd::ListEntity::File(file) = item {
@@ -347,9 +348,9 @@ pub async fn list_remote_photos(
 }
 
 /// Synchronisiert eine Wachtel (Stammdaten)
-pub async fn sync_wachtel(
+pub async fn sync_quail(
     conn: &Connection,
-    wachtel: &Wachtel,
+    quail: &Quail,
     server_url: &str,
     username: &str,
     app_password: &str,
@@ -369,33 +370,40 @@ pub async fn sync_wachtel(
         ))
         .build()
         .map_err(|e| AppError::Other(format!("WebDAV Client Fehler: {:?}", e)))?;
-    
+
     // Erstelle Metadata
-    let metadata = create_wachtel_metadata(conn, wachtel)?;
-    let metadata_toml = metadata.to_toml()
+    let metadata = create_quail_metadata(conn, quail)?;
+    let metadata_toml = metadata
+        .to_toml()
         .map_err(|e| AppError::Other(format!("TOML Serialisierung fehlgeschlagen: {}", e)))?;
-    
+
     // Erstelle Ordnerstruktur
-    let wachtel_dir = format!("{}/wachtels/{}", remote_path.trim_end_matches('/'), wachtel.uuid);
-    let _ = client.mkcol(&format!("{}/wachtels", remote_path.trim_end_matches('/'))).await;
-    let _ = client.mkcol(&wachtel_dir).await;
-    let _ = client.mkcol(&format!("{}/photos", wachtel_dir)).await;
-    let _ = client.mkcol(&format!("{}/events", wachtel_dir)).await;
-    
+    let quail_dir = format!(
+        "{}/quails/{}",
+        remote_path.trim_end_matches('/'),
+        quail.uuid
+    );
+    let _ = client
+        .mkcol(&format!("{}/quails", remote_path.trim_end_matches('/')))
+        .await;
+    let _ = client.mkcol(&quail_dir).await;
+    let _ = client.mkcol(&format!("{}/photos", quail_dir)).await;
+    let _ = client.mkcol(&format!("{}/events", quail_dir)).await;
+
     // Upload profile.toml
-    let metadata_path = format!("{}/profile.toml", wachtel_dir);
+    let metadata_path = format!("{}/profile.toml", quail_dir);
     client
         .put(&metadata_path, metadata_toml.into_bytes())
         .await
         .map_err(|e| AppError::Other(format!("Wachtel-Metadata Upload fehlgeschlagen: {:?}", e)))?;
-    
+
     Ok(())
 }
 
 /// Synchronisiert ein Event
 pub async fn sync_event(
     conn: &Connection,
-    event: &WachtelEvent,
+    event: &QuailEvent,
     server_url: &str,
     username: &str,
     app_password: &str,
@@ -415,76 +423,84 @@ pub async fn sync_event(
         ))
         .build()
         .map_err(|e| AppError::Other(format!("WebDAV Client Fehler: {:?}", e)))?;
-    
+
     // Erstelle Metadata
     let metadata = create_event_metadata(conn, event)?;
-    let metadata_toml = metadata.to_toml()
+    let metadata_toml = metadata
+        .to_toml()
         .map_err(|e| AppError::Other(format!("TOML Serialisierung fehlgeschlagen: {}", e)))?;
-    
+
     // Hole Wachtel-UUID
-    let wachtel_uuid: String = conn.query_row(
-        "SELECT uuid FROM wachtels WHERE id = ?1",
-        [event.wachtel_id],
+    let quail_uuid: String = conn.query_row(
+        "SELECT uuid FROM quails WHERE id = ?1",
+        [event.quail_id],
         |row| row.get(0),
     )?;
-    
+
     // Erstelle Ordnerstruktur
     let event_dir = format!(
-        "{}/wachtels/{}/events/{}",
+        "{}/quails/{}/events/{}",
         remote_path.trim_end_matches('/'),
-        wachtel_uuid,
+        quail_uuid,
         metadata.uuid
     );
     let _ = client.mkcol(&event_dir).await;
     let _ = client.mkcol(&format!("{}/photos", event_dir)).await;
-    
+
     // Upload event.toml
     let metadata_path = format!("{}/event.toml", event_dir);
     client
         .put(&metadata_path, metadata_toml.into_bytes())
         .await
         .map_err(|e| AppError::Other(format!("Event-Metadata Upload fehlgeschlagen: {:?}", e)))?;
-    
+
     Ok(())
 }
 
 /// Synchronisiert alle Wachtels
-pub async fn sync_all_wachtels(conn: &Connection) -> Result<usize, AppError> {
-    eprintln!("=== sync_all_wachtels started ===");
-    
+pub async fn sync_all_quails(conn: &Connection) -> Result<usize, AppError> {
+    eprintln!("=== sync_all_quails started ===");
+
     let settings = sync_service::load_sync_settings(conn)?
         .ok_or_else(|| AppError::NotFound("Sync-Einstellungen nicht konfiguriert".to_string()))?;
-    
+
     if !settings.enabled {
-        return Err(AppError::Validation("Synchronisierung ist deaktiviert".to_string()));
+        return Err(AppError::Validation(
+            "Synchronisierung ist deaktiviert".to_string(),
+        ));
     }
-    
+
     // Hole alle Wachtels
-    let mut stmt = conn.prepare("SELECT id, uuid, name, gender, ring_color FROM wachtels")?;
-    let wachtels: Vec<Wachtel> = stmt.query_map([], |row| {
-        Ok(Wachtel {
-            id: row.get(0)?,
-            uuid: row.get(1)?,
-            name: row.get(2)?,
-            gender: crate::models::Gender::from_str(&row.get::<_, String>(3)?),
-            ring_color: row.get::<_, Option<String>>(4)?
-                .map(|s| crate::models::Ringfarbe::from_str(&s)),
-        })
-    })?.collect::<Result<Vec<_>, _>>()?;
-    
-    eprintln!("Found {} wachtels to sync", wachtels.len());
+    let mut stmt = conn.prepare("SELECT id, uuid, name, gender, ring_color FROM quails")?;
+    let quails: Vec<Quail> = stmt
+        .query_map([], |row| {
+            Ok(Quail {
+                id: row.get(0)?,
+                uuid: row.get(1)?,
+                name: row.get(2)?,
+                gender: crate::models::Gender::from_str(&row.get::<_, String>(3)?),
+                ring_color: row
+                    .get::<_, Option<String>>(4)?
+                    .map(|s| crate::models::RingColor::from_str(&s)),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    eprintln!("Found {} quails to sync", quails.len());
     let mut synced_count = 0;
-    
-    for wachtel in wachtels {
-        eprintln!("Syncing wachtel: uuid={}, name={}", wachtel.uuid, wachtel.name);
-        match sync_wachtel(
+
+    for quail in quails {
+        eprintln!("Syncing quail: uuid={}, name={}", quail.uuid, quail.name);
+        match sync_quail(
             conn,
-            &wachtel,
+            &quail,
             &settings.server_url,
             &settings.username,
             &settings.app_password,
             &settings.remote_path,
-        ).await {
+        )
+        .await
+        {
             Ok(_) => {
                 eprintln!("Wachtel sync successful!");
                 synced_count += 1;
@@ -494,48 +510,53 @@ pub async fn sync_all_wachtels(conn: &Connection) -> Result<usize, AppError> {
             }
         }
     }
-    
-    eprintln!("=== sync_all_wachtels completed: {} synced ===", synced_count);
+
+    eprintln!("=== sync_all_quails completed: {} synced ===", synced_count);
     Ok(synced_count)
 }
 
 /// Synchronisiert alle Events
 pub async fn sync_all_events(conn: &Connection) -> Result<usize, AppError> {
     eprintln!("=== sync_all_events started ===");
-    
+
     let settings = sync_service::load_sync_settings(conn)?
         .ok_or_else(|| AppError::NotFound("Sync-Einstellungen nicht konfiguriert".to_string()))?;
-    
+
     if !settings.enabled {
-        return Err(AppError::Validation("Synchronisierung ist deaktiviert".to_string()));
+        return Err(AppError::Validation(
+            "Synchronisierung ist deaktiviert".to_string(),
+        ));
     }
-    
+
     // Hole alle Events
-    let mut stmt = conn.prepare(
-        "SELECT id, uuid, wachtel_id, event_type, event_date, notes FROM wachtel_events"
-    )?;
-    let events: Vec<WachtelEvent> = stmt.query_map([], |row| {
-        let event_date_str: String = row.get(4)?;
-        let event_date = chrono::NaiveDate::parse_from_str(&event_date_str, "%Y-%m-%d")
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                4,
-                rusqlite::types::Type::Text,
-                Box::new(e)
-            ))?;
-        
-        Ok(WachtelEvent {
-            id: row.get(0)?,
-            uuid: row.get(1)?,
-            wachtel_id: row.get(2)?,
-            event_type: crate::models::EventType::from_str(&row.get::<_, String>(3)?),
-            event_date,
-            notes: row.get(5)?,
-        })
-    })?.collect::<Result<Vec<_>, _>>()?;
-    
+    let mut stmt =
+        conn.prepare("SELECT id, uuid, quail_id, event_type, event_date, notes FROM quail_events")?;
+    let events: Vec<QuailEvent> = stmt
+        .query_map([], |row| {
+            let event_date_str: String = row.get(4)?;
+            let event_date = chrono::NaiveDate::parse_from_str(&event_date_str, "%Y-%m-%d")
+                .map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        4,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+
+            Ok(QuailEvent {
+                id: row.get(0)?,
+                uuid: row.get(1)?,
+                quail_id: row.get(2)?,
+                event_type: crate::models::EventType::from_str(&row.get::<_, String>(3)?),
+                event_date,
+                notes: row.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
     eprintln!("Found {} events to sync", events.len());
     let mut synced_count = 0;
-    
+
     for event in events {
         eprintln!("Syncing event: type={}", event.event_type.as_str());
         match sync_event(
@@ -545,7 +566,9 @@ pub async fn sync_all_events(conn: &Connection) -> Result<usize, AppError> {
             &settings.username,
             &settings.app_password,
             &settings.remote_path,
-        ).await {
+        )
+        .await
+        {
             Ok(_) => {
                 eprintln!("Event sync successful!");
                 synced_count += 1;
@@ -555,30 +578,32 @@ pub async fn sync_all_events(conn: &Connection) -> Result<usize, AppError> {
             }
         }
     }
-    
+
     eprintln!("=== sync_all_events completed: {} synced ===", synced_count);
     Ok(synced_count)
 }
 
 /// Synchronisiert alle ausstehenden Fotos
 pub async fn sync_all_photos(conn: &Connection) -> Result<usize, AppError> {
-        eprintln!("=== sync_all_photos started ===");
-    
+    eprintln!("=== sync_all_photos started ===");
+
     // Lade Sync-Einstellungen
     let settings = sync_service::load_sync_settings(conn)?
         .ok_or_else(|| AppError::NotFound("Sync-Einstellungen nicht konfiguriert".to_string()))?;
-    eprintln!("Settings loaded: server={}, user={}, remote_path={}", 
-        settings.server_url, settings.username, settings.remote_path);
+    eprintln!(
+        "Settings loaded: server={}, user={}, remote_path={}",
+        settings.server_url, settings.username, settings.remote_path
+    );
 
     if !settings.enabled {
-            eprintln!("Sync is disabled!");
+        eprintln!("Sync is disabled!");
         return Err(AppError::Validation(
             "Synchronisierung ist deaktiviert".to_string(),
         ));
     }
 
     // Liste remote Fotos
-        eprintln!("Listing remote photos...");
+    eprintln!("Listing remote photos...");
     let remote_uuids = list_remote_photos(
         &settings.server_url,
         &settings.username,
@@ -589,33 +614,33 @@ pub async fn sync_all_photos(conn: &Connection) -> Result<usize, AppError> {
     eprintln!("Found {} remote photos", remote_uuids.len());
 
     // Finde lokale Fotos die noch nicht hochgeladen wurden
-        eprintln!("Finding pending photos...");
+    eprintln!("Finding pending photos...");
     let pending_photos = list_pending_photos(conn)?;
-        eprintln!("Found {} pending photos", pending_photos.len());
-    
+    eprintln!("Found {} pending photos", pending_photos.len());
+
     let mut uploaded_count = 0;
 
     for photo in pending_photos {
-            eprintln!("Processing photo: uuid={}, path={}", photo.uuid, photo.path);
-        
+        eprintln!("Processing photo: uuid={}, path={}", photo.uuid, photo.path);
+
         // Überspringe wenn bereits remote vorhanden
         if remote_uuids.contains(&photo.uuid) {
-                        eprintln!("Photo already exists remotely, marking as uploaded");
+            eprintln!("Photo already exists remotely, marking as uploaded");
             // Markiere als uploaded
             update_sync_status(conn, &photo.uuid, "uploaded", None)?;
             continue;
         }
 
         // Füge zur Queue hinzu falls nicht vorhanden
-            eprintln!("Adding to sync queue...");
+        eprintln!("Adding to sync queue...");
         add_to_sync_queue(conn, &photo.uuid)?;
 
         // Setze Status auf uploading
-            eprintln!("Setting status to uploading...");
+        eprintln!("Setting status to uploading...");
         update_sync_status(conn, &photo.uuid, "uploading", None)?;
 
         // Upload
-            eprintln!("Starting upload...");
+        eprintln!("Starting upload...");
         match upload_photo(
             conn,
             &photo,
@@ -627,12 +652,12 @@ pub async fn sync_all_photos(conn: &Connection) -> Result<usize, AppError> {
         .await
         {
             Ok(_) => {
-                                eprintln!("Upload successful!");
+                eprintln!("Upload successful!");
                 update_sync_status(conn, &photo.uuid, "uploaded", None)?;
                 uploaded_count += 1;
             }
             Err(e) => {
-                                eprintln!("Upload failed: {}", e);
+                eprintln!("Upload failed: {}", e);
                 let error_msg = format!("{}", e);
                 update_sync_status(conn, &photo.uuid, "failed", Some(&error_msg))?;
             }
@@ -642,18 +667,21 @@ pub async fn sync_all_photos(conn: &Connection) -> Result<usize, AppError> {
     // Aktualisiere last_sync
     sync_service::update_last_sync(conn)?;
 
-    eprintln!("=== sync_all_photos completed: {} uploaded ===", uploaded_count);
+    eprintln!(
+        "=== sync_all_photos completed: {} uploaded ===",
+        uploaded_count
+    );
     Ok(uploaded_count)
 }
 
-/// Erstellt TOML Metadata für einen Eier-Eintrag
+/// Creates TOML metadata for an egg record
 pub fn create_egg_record_metadata(
     egg_record: &crate::models::EggRecord,
     created_at: String,
     updated_at: String,
 ) -> Result<crate::models::EggRecordMetadata, AppError> {
     let device_id = get_device_id();
-    
+
     Ok(crate::models::EggRecordMetadata {
         uuid: egg_record.uuid.clone(),
         record_date: egg_record.record_date.format("%Y-%m-%d").to_string(),
@@ -665,7 +693,7 @@ pub fn create_egg_record_metadata(
     })
 }
 
-/// Synchronisiert einen Eier-Eintrag
+/// Synchronizes an egg record
 pub async fn sync_egg_record(
     conn: &Connection,
     egg_record: &crate::models::EggRecord,
@@ -690,72 +718,84 @@ pub async fn sync_egg_record(
         ))
         .build()
         .map_err(|e| AppError::Other(format!("WebDAV Client Fehler: {:?}", e)))?;
-    
+
     // Erstelle Metadata
     let metadata = create_egg_record_metadata(egg_record, created_at, updated_at)?;
-    let metadata_toml = metadata.to_toml()
+    let metadata_toml = metadata
+        .to_toml()
         .map_err(|e| AppError::Other(format!("TOML Serialisierung fehlgeschlagen: {}", e)))?;
-    
+
     // Erstelle Ordnerstruktur
     let egg_records_dir = format!("{}/egg_records", remote_path.trim_end_matches('/'));
     let _ = client.mkcol(&egg_records_dir).await;
-    
+
     // Upload egg_record.toml
     let metadata_path = format!("{}/{}.toml", egg_records_dir, metadata.uuid);
     client
         .put(&metadata_path, metadata_toml.into_bytes())
         .await
-        .map_err(|e| AppError::Other(format!("Egg-Record-Metadata Upload fehlgeschlagen: {:?}", e)))?;
-    
+        .map_err(|e| {
+            AppError::Other(format!(
+                "Egg-Record-Metadata Upload fehlgeschlagen: {:?}",
+                e
+            ))
+        })?;
+
     Ok(())
 }
 
-/// Synchronisiert alle Eier-Einträge
+/// Synchronizes all egg records
 pub async fn sync_all_egg_records(conn: &Connection) -> Result<usize, AppError> {
     eprintln!("=== sync_all_egg_records started ===");
-    
+
     let settings = sync_service::load_sync_settings(conn)?
-        .ok_or_else(|| AppError::NotFound("Sync-Einstellungen nicht konfiguriert".to_string()))?;
-    
+        .ok_or_else(|| AppError::NotFound("Sync settings not configured".to_string()))?;
+
     if !settings.enabled {
-        return Err(AppError::Validation("Synchronisierung ist deaktiviert".to_string()));
+        return Err(AppError::Validation(
+            "Synchronization is disabled".to_string(),
+        ));
     }
-    
-    // Hole alle Eier-Einträge
+
+    // Get all egg records
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, record_date, total_eggs, notes, created_at, updated_at FROM egg_records"
+        "SELECT id, uuid, record_date, total_eggs, notes, created_at, updated_at FROM egg_records",
     )?;
-    let egg_records: Vec<(crate::models::EggRecord, String, String)> = stmt.query_map([], |row| {
-        let id: i64 = row.get(0)?;
-        let uuid: String = row.get(1)?;
-        let date_str: String = row.get(2)?;
-        let total_eggs: i32 = row.get(3)?;
-        let notes: Option<String> = row.get(4)?;
-        let created_at: String = row.get(5)?;
-        let updated_at: String = row.get(6)?;
-        
-        let record_date = chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                2,
-                rusqlite::types::Type::Text,
-                Box::new(e)
-            ))?;
-        
-        Ok((
-            crate::models::EggRecord {
-                id: Some(id),
-                uuid,
-                record_date,
-                total_eggs,
-                notes,
-            },
-            created_at,
-            updated_at,
-        ))
-    })?.collect::<Result<Vec<_>, _>>()?;
-    
+    let egg_records: Vec<(crate::models::EggRecord, String, String)> = stmt
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let uuid: String = row.get(1)?;
+            let date_str: String = row.get(2)?;
+            let total_eggs: i32 = row.get(3)?;
+            let notes: Option<String> = row.get(4)?;
+            let created_at: String = row.get(5)?;
+            let updated_at: String = row.get(6)?;
+
+            let record_date =
+                chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d").map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+
+            Ok((
+                crate::models::EggRecord {
+                    id: Some(id),
+                    uuid,
+                    record_date,
+                    total_eggs,
+                    notes,
+                },
+                created_at,
+                updated_at,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
     let mut synced_count = 0;
-    
+
     for (egg_record, created_at, updated_at) in egg_records {
         match sync_egg_record(
             conn,
@@ -766,7 +806,9 @@ pub async fn sync_all_egg_records(conn: &Connection) -> Result<usize, AppError> 
             &settings.username,
             &settings.app_password,
             &settings.remote_path,
-        ).await {
+        )
+        .await
+        {
             Ok(_) => {
                 eprintln!("Egg record sync successful: {}", egg_record.uuid);
                 synced_count += 1;
@@ -776,34 +818,42 @@ pub async fn sync_all_egg_records(conn: &Connection) -> Result<usize, AppError> 
             }
         }
     }
-    
-    eprintln!("=== sync_all_egg_records completed: {} synced ===", synced_count);
+
+    eprintln!(
+        "=== sync_all_egg_records completed: {} synced ===",
+        synced_count
+    );
     Ok(synced_count)
 }
 
-/// Synchronisiert ALLES: Wachtels, Events, Fotos und Eier-Einträge
+/// Synchronizes EVERYTHING: Quails, Events, Photos and Egg Records
 pub async fn sync_all(conn: &Connection) -> Result<(usize, usize, usize, usize), AppError> {
     eprintln!("=== FULL SYNC STARTED ===");
-    
-    // 1. Synchronisiere Wachtels (Stammdaten)
-    let wachtels_synced = sync_all_wachtels(conn).await?;
-    
+
+    // 1. Synchronize quails (master data)
+    let quails_synced = sync_all_quails(conn).await?;
+
     // 2. Synchronisiere Events
     let events_synced = sync_all_events(conn).await?;
-    
+
     // 3. Synchronisiere Eier-Einträge
     let egg_records_synced = sync_all_egg_records(conn).await?;
-    
+
     // 4. Synchronisiere Fotos
     let photos_synced = sync_all_photos(conn).await?;
-    
+
     // Aktualisiere last_sync
     sync_service::update_last_sync(conn)?;
-    
+
     eprintln!(
-        "=== FULL SYNC COMPLETED: {} wachtels, {} events, {} egg records, {} photos ===",
-        wachtels_synced, events_synced, egg_records_synced, photos_synced
+        "=== FULL SYNC COMPLETED: {} quails, {} events, {} egg records, {} photos ===",
+        quails_synced, events_synced, egg_records_synced, photos_synced
     );
-    
-    Ok((wachtels_synced, events_synced, egg_records_synced, photos_synced))
+
+    Ok((
+        quails_synced,
+        events_synced,
+        egg_records_synced,
+        photos_synced,
+    ))
 }

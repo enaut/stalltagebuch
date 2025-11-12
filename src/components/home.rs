@@ -2,10 +2,11 @@ use crate::database;
 use crate::services;
 use crate::Screen;
 use dioxus::prelude::*;
+use dioxus_i18n::t;
 
 #[component]
 pub fn HomeScreen(on_navigate: EventHandler<Screen>) -> Element {
-    let mut db_status = use_signal(|| Err("Initialisiere...".to_string()));
+    let mut db_status = use_signal(|| Err(t!("status-initializing")));
     let mut profile_count = use_signal(|| 0i32);
 
     // Initialize database on mount
@@ -13,21 +14,24 @@ pub fn HomeScreen(on_navigate: EventHandler<Screen>) -> Element {
         Ok(conn) => match services::count_profiles(&conn) {
             Ok(count) => {
                 profile_count.set(count);
-                db_status.set(Ok(format!("✅ Datenbank bereit ({} Profile)", count)));
+                db_status.set(Ok(format!("✅ {}", t!( "status-db-ready", count: count))));
             }
             Err(e) => {
-                db_status.set(Err(format!("⚠️ Fehler beim Laden: {}", e)));
+                db_status.set(Err(format!("⚠️ {}", e)));
             }
         },
         Err(e) => {
-            db_status.set(Err(format!("❌ DB-Fehler: {}", e)));
+            db_status.set(Err(format!(
+                "❌ {}",
+                t!( "status-db-error", error: e.to_string())
+            )));
         }
     });
 
     rsx! {
         div { style: "padding: 16px; max-width: 600px; margin: 0 auto; min-height: 100vh; background: #f5f5f5;",
             h1 { style: "color: #0066cc; text-align: center; margin-bottom: 24px; margin-top: 48px; font-size: 28px; font-weight: 700;",
-                "🥚 Stalltagebuch"
+                {format!("🥚 {}", t!("app-title"))}
             }
             if let Err(db_status) = db_status() {
                 // Status Card
@@ -46,18 +50,18 @@ pub fn HomeScreen(on_navigate: EventHandler<Screen>) -> Element {
                         class: "btn-primary",
                         style: "padding: 16px; font-size: 16px; display: flex; align-items: center; justify-content: center;",
                         onclick: move |_| on_navigate.call(Screen::ProfileList),
-                        "🐦 Wachtel-Profile verwalten"
+                        {format!("🐦 {}", t!("profile-list-title"))}
                     }
                     button {
                         class: "btn-success",
                         style: "padding: 16px; font-size: 16px; display: flex; align-items: center; justify-content: center;",
                         onclick: move |_| on_navigate.call(Screen::EggTracking(None)),
-                        "🥚 Eier eintragen"
+                        {format!("🥚 {}", t!("egg-tracking-title"))}
                     }
                     button {
                         style: "padding: 16px; font-size: 16px; background: #ff8c00; color: white; display: flex; align-items: center; justify-content: center;",
                         onclick: move |_| on_navigate.call(Screen::Statistics),
-                        "📊 Statistik anzeigen"
+                        {format!("📊 {}", t!("stats-title"))}
                     }
                 }
             }
@@ -67,7 +71,7 @@ pub fn HomeScreen(on_navigate: EventHandler<Screen>) -> Element {
                     class: "btn-secondary",
                     style: "width: 100%; padding: 16px; font-size: 16px; display: flex; align-items: center; justify-content: center;",
                     onclick: move |_| on_navigate.call(Screen::Settings),
-                    "⚙️ Einstellungen"
+                    {format!("⚙️ {}", t!("settings-title"))}
                 }
             }
 
@@ -83,7 +87,7 @@ pub fn HomeScreen(on_navigate: EventHandler<Screen>) -> Element {
                     "Arch: {std::env::consts::ARCH}"
                 }
                 p { style: "font-size: 11px; color: #888; margin: 4px 0; word-break: break-all;",
-                    "DB: {database::get_database_path().display()}"
+                    {t!("info-db-path", path : database::get_database_path().display().to_string())} // DB: {path}
                 }
             }
         }

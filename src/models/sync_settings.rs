@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-/// Synchronisierungseinstellungen für Nextcloud/WebDAV
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Synchronization settings for Nextcloud/WebDAV
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncSettings {
     pub id: i64,
     pub server_url: String,

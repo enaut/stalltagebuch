@@ -3,6 +3,7 @@ use crate::models::SyncSettings;
 use crate::services::sync_service;
 use crate::Screen;
 use dioxus::prelude::*;
+use dioxus_i18n::t;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq)]
@@ -41,12 +42,20 @@ fn NetworkCheckCard() -> Element {
                             }
                         }
                         Err(e) => {
-                            network_status.set(NetworkStatus::Offline(format!("Fehler: {}", e)));
+                            network_status.set(NetworkStatus::Offline(format!(
+                                "{}: {}",
+                                t!("error-network"),
+                                e
+                            )));
                         }
                     }
                 }
                 Err(e) => {
-                    network_status.set(NetworkStatus::Offline(format!("Client-Fehler: {}", e)));
+                    network_status.set(NetworkStatus::Offline(format!(
+                        "{}: {}",
+                        t!("error-client"),
+                        e
+                    )));
                 }
             }
         });
@@ -76,12 +85,20 @@ fn NetworkCheckCard() -> Element {
                             }
                         }
                         Err(e) => {
-                            network_status.set(NetworkStatus::Offline(format!("Fehler: {}", e)));
+                            network_status.set(NetworkStatus::Offline(format!(
+                                "{}: {}",
+                                t!("error-network"),
+                                e
+                            )));
                         }
                     }
                 }
                 Err(e) => {
-                    network_status.set(NetworkStatus::Offline(format!("Client-Fehler: {}", e)));
+                    network_status.set(NetworkStatus::Offline(format!(
+                        "{}: {}",
+                        t!("error-client"),
+                        e
+                    )));
                 }
             }
         });
@@ -94,9 +111,7 @@ fn NetworkCheckCard() -> Element {
                     div { style: "display: flex; align-items: center; gap: 12px;",
                         div { style: "font-size: 24px;", "🔄" }
                         div {
-                            p { style: "margin: 0; font-weight: 600; font-size: 14px;",
-                                "Netzwerkverbindung prüfen..."
-                            }
+                            p { style: "margin: 0; font-weight: 600; font-size: 14px;", {t!("network-checking")} } // Network connectivity check in progress
                         }
                     }
                 }
@@ -109,13 +124,14 @@ fn NetworkCheckCard() -> Element {
                             div { style: "font-size: 24px;", "❌" }
                             div {
                                 p { style: "margin: 0; font-weight: 600; font-size: 14px; color: #c62828;",
-                                    "Keine Internet-Verbindung"
+                                    {t!("network-offline")} // No internet connection message
                                 }
                                 p { style: "margin: 0; font-size: 12px; color: #666;", "{error}" }
                             }
                         }
                         button { class: "btn-primary", style: "width: 100%;", onclick: recheck,
-                            "🔄 Erneut versuchen"
+                            "🔄 "
+                            {t!("action-retry")}
                         }
                     }
                 }
@@ -215,14 +231,15 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                     }
                                     Err(e) => {
                                         connection_status.set(Some(ConnectionStatus::Failed(
-                                            format!("Zugriff fehlgeschlagen: {:?}", e),
+                                            format!("{}: {:?}", t!("error-access-failed"), e),
                                         )));
                                     }
                                 }
                             }
                             Err(e) => {
                                 connection_status.set(Some(ConnectionStatus::Failed(format!(
-                                    "Client-Fehler: {:?}",
+                                    "{}: {:?}",
+                                    t!("error-client"),
                                     e
                                 ))));
                             }
@@ -230,14 +247,14 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     });
                 }
                 Ok(None) => {
-                    status_message.set("ℹ️ Noch keine Synchronisierung konfiguriert".to_string());
+                    status_message.set(format!("\u{2139}\u{fe0f} {}", t!("sync-not-configured")));
                 }
                 Err(e) => {
-                    status_message.set(format!("⚠️ Fehler beim Laden: {}", e));
+                    status_message.set(format!("\u{26a0}\u{fe0f} {}: {}", t!("error-loading"), e));
                 }
             },
             Err(e) => {
-                status_message.set(format!("❌ DB-Fehler: {}", e));
+                status_message.set(format!("\u{274c} {}: {}", t!("error-database"), e));
             }
         }
     });
@@ -319,7 +336,7 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                                 }
                                                                 Err(e) => {
                                                                     login_state.set(LoginState::Error(
-                                                                        format!("WebDAV-Client-Fehler: {:?}", e),
+                                                                        format!("{}: {:?}", t!("error-webdav-client"), e),
                                                                     ));
                                                                     return;
                                                                 }
@@ -344,16 +361,15 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                                             login_state
                                                                                 .set(LoginState::Success);
                                                                             status_message.set(
-                                                                                "✅ Anmeldung erfolgreich! Ordner erstellt."
-                                                                                    .to_string(),
+                                                                                format!("\u{2705} {}", t!("sync-login-success-folder"))
                                                                             );
                                                                             return;
                                                                         }
                                                                         Err(e) => {
                                                                             login_state.set(
                                                                                 LoginState::Error(format!(
-                                                                                    "Speicherfehler: {}",
-                                                                                    e
+                                                                                    "{}: {}",
+                                                                                    t!("error-save"), e
                                                                                 )),
                                                                             );
                                                                             return;
@@ -362,7 +378,7 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                                 }
                                                                 Err(e) => {
                                                                     login_state.set(LoginState::Error(
-                                                                        format!("DB-Fehler: {}", e),
+                                                                        format!("{}: {}", t!("error-database"), e),
                                                                     ));
                                                                     return;
                                                                 }
@@ -370,14 +386,19 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                         }
                                                         Err(e) => {
                                                             login_state.set(LoginState::Error(
-                                                                format!("JSON-Fehler: {}", e),
+                                                                format!(
+                                                                    "{}: {}",
+                                                                    t!("error-json"),
+                                                                    e
+                                                                ),
                                                             ));
                                                             return;
                                                         }
                                                     }
                                                 } else if response.status().as_u16() != 404 {
                                                     login_state.set(LoginState::Error(format!(
-                                                        "Unerwarteter Status: {}",
+                                                        "{}: {}",
+                                                        t!("error-unexpected-status"),
                                                         response.status()
                                                     )));
                                                     return;
@@ -386,7 +407,8 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                             }
                                             Err(e) => {
                                                 login_state.set(LoginState::Error(format!(
-                                                    "Poll-Fehler: {}",
+                                                    "{}: {}",
+                                                    t!("error-poll"),
                                                     e
                                                 )));
                                                 return;
@@ -404,24 +426,32 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                     }
 
                                     login_state.set(LoginState::Error(
-                                        "Timeout: Keine Anmeldung innerhalb von 5 Minuten"
-                                            .to_string(),
+                                        t!("error-login-timeout").to_string(),
                                     ));
                                 });
                             }
                             Err(e) => {
-                                login_state.set(LoginState::Error(format!("JSON-Fehler: {}", e)));
+                                login_state.set(LoginState::Error(format!(
+                                    "{}: {}",
+                                    t!("error-json"),
+                                    e
+                                )));
                             }
                         }
                     } else {
                         login_state.set(LoginState::Error(format!(
-                            "Server-Fehler: {}",
+                            "{}: {}",
+                            t!("error-server"),
                             response.status()
                         )));
                     }
                 }
                 Err(e) => {
-                    login_state.set(LoginState::Error(format!("Verbindungsfehler: {}", e)));
+                    login_state.set(LoginState::Error(format!(
+                        "{}: {}",
+                        t!("error-connection"),
+                        e
+                    )));
                 }
             }
         });
@@ -432,14 +462,14 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
             Ok(_) => {
                 current_settings.set(None);
                 login_state.set(LoginState::NotStarted);
-                status_message.set("✅ Einstellungen gelöscht".to_string());
+                status_message.set(format!("\u{2705} {}", t!("sync-settings-deleted")));
             }
             Err(e) => {
-                status_message.set(format!("⚠️ Fehler beim Löschen: {}", e));
+                status_message.set(format!("\u{26a0}\u{fe0f} {}: {}", t!("error-deleting"), e));
             }
         },
         Err(e) => {
-            status_message.set(format!("❌ DB-Fehler: {}", e));
+            status_message.set(format!("\u{274c} {}: {}", t!("error-database"), e));
         }
     };
 
@@ -450,10 +480,12 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                 button {
                     class: "btn-back",
                     onclick: move |_| on_navigate.call(Screen::Home),
-                    "← Zurück"
+                    "← "
+                    {t!("action-back")}
                 }
                 h1 { style: "flex: 1; text-align: center; margin: 0; font-size: 24px; color: #0066cc;",
-                    "⚙️ Einstellungen"
+                    "⚙️ "
+                    {t!("settings-title")}
                 }
                 div { style: "width: 80px;" }
             }
@@ -474,18 +506,28 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     class: "card",
                     style: "margin-bottom: 16px; background: #e8f5e9;",
                     h2 { style: "margin: 0 0 12px 0; font-size: 18px; color: #2e7d32;",
-                        "✅ Synchronisierung konfiguriert"
+                        "\u{2705} " // Sync configured successfully heading
+                        {t!("sync-configured")}
                     }
                     p { style: "margin: 4px 0; font-size: 14px;",
-                        strong { "Server: " }
+                        strong {
+                            {t!("sync-server")}
+                            ": "
+                        } // Server URL label
                         "{settings.server_url}"
                     }
                     p { style: "margin: 4px 0; font-size: 14px;",
-                        strong { "Benutzer: " }
+                        strong {
+                            {t!("sync-username")}
+                            ": "
+                        } // Username label
                         "{settings.username}"
                     }
                     p { style: "margin: 4px 0; font-size: 14px;",
-                        strong { "Pfad: " }
+                        strong {
+                            {t!("sync-path")}
+                            ": "
+                        } // Remote path label
                         "{settings.remote_path}"
                         " "
                         match connection_status() {
@@ -505,49 +547,63 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     }
                     if let Some(last_sync) = settings.last_sync {
                         p { style: "margin: 4px 0; font-size: 14px;",
-                            strong { "Letzte Sync: " }
+                            strong {
+                                {t!("sync-last-sync")}
+                                ": "
+                            } // Last sync timestamp label
                             "{last_sync}"
                         }
                     }
-                    
+
                     div { style: "display: flex; gap: 12px; margin-top: 12px;",
                         button {
                             class: "btn-primary",
                             style: "flex: 1;",
                             onclick: move |_| {
                                 spawn(async move {
-                                    status_message.set("🔄 Vollständige Synchronisierung läuft...".to_string());
+                                    status_message
+                                        .set("🔄 Vollständige Synchronisierung läuft...".to_string());
                                     match database::init_database() {
                                         Ok(conn) => {
                                             match crate::services::upload_service::sync_all(&conn).await {
-                                                Ok((wachtels, events, egg_records, photos)) => {
-                                                    status_message.set(format!(
-                                                        "✅ {} Wachtels, {} Events, {} Eier-Einträge, {} Fotos synchronisiert",
-                                                        wachtels, events, egg_records, photos
-                                                    ));
-                                                    // Reload settings to update last_sync
-                                                    if let Ok(Some(updated)) = crate::services::sync_service::load_sync_settings(&conn) {
+                                                Ok((quails, events, egg_records, photos)) => {
+                                                    status_message
+                                                        .set(
+                                                            format!(
+                                                                "\u{2705} {}",
+                                                                t!(
+                                                                    "sync-success", quails : quails, events : events, eggs :
+                                                                    egg_records, photos : photos
+                                                                ),
+                                                            ),
+                                                        );
+                                                    if let Ok(Some(updated)) = crate::services::sync_service::load_sync_settings(
+                                                        &conn,
+                                                    ) {
                                                         current_settings.set(Some(updated));
                                                     }
                                                 }
                                                 Err(e) => {
-                                                    status_message.set(format!("❌ Sync fehlgeschlagen: {}", e));
+                                                    status_message
+                                                        .set(format!("\u{274c} {}: {}", t!("sync-failed"), e));
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            status_message.set(format!("❌ DB-Fehler: {}", e));
+                                            status_message
+                                                .set(format!("\u{274c} {}: {}", t!("error-database"), e));
                                         }
                                     }
                                 });
                             },
-                            "🔄 Jetzt synchronisieren"
+                            {format!("🔄 {}", t!("sync-now"))}
                         }
                         button {
                             class: "btn-danger",
                             style: "flex: 1;",
                             onclick: delete_settings,
-                            "🗑️ Konfiguration löschen"
+                            "🗑️ "
+                            {t!("sync-delete-config")}
                         }
                     }
                 }
@@ -555,13 +611,13 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                 // Setup form
                 div { class: "card",
                     h2 { style: "margin: 0 0 16px 0; font-size: 18px; color: #333;",
-                        "Nextcloud Synchronisierung einrichten"
+                        {t!("sync-setup-title")} // Setup sync heading
                     }
 
                     // Server URL
                     div { style: "margin-bottom: 16px;",
                         label { style: "display: block; margin-bottom: 4px; font-weight: 600; font-size: 14px;",
-                            "Nextcloud Server URL"
+                            {t!("sync-server-url")} // Server URL input label
                         }
                         input {
                             r#type: "url",
@@ -571,14 +627,14 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                             style: "width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px;",
                         }
                         p { style: "margin: 4px 0 0 0; font-size: 12px; color: #666;",
-                            "Die vollständige URL zu Ihrer Nextcloud-Instanz"
+                            {t!("sync-server-hint")} // Server URL hint text
                         }
                     }
 
                     // Remote Path
                     div { style: "margin-bottom: 16px;",
                         label { style: "display: block; margin-bottom: 4px; font-weight: 600; font-size: 14px;",
-                            "Speicherpfad"
+                            {t!("sync-path-label")} // Remote path input label
                         }
                         input {
                             r#type: "text",
@@ -588,7 +644,7 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                             style: "width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px;",
                         }
                         p { style: "margin: 4px 0 0 0; font-size: 12px; color: #666;",
-                            "Ordner auf dem Server, in dem die Fotos gespeichert werden"
+                            {t!("sync-path-hint")} // Remote path hint text
                         }
                     }
 
@@ -599,12 +655,14 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                 class: "btn-primary",
                                 onclick: start_login,
                                 disabled: server_url().trim().is_empty() || !server_url().starts_with("http"),
-                                "🔐 Mit Nextcloud anmelden"
+                                "🔐 "
+                                {t!("sync-login")}
                             }
                         },
                         LoginState::InitiatingFlow => rsx! {
                             div { style: "padding: 12px; background: #fff3cd; border-radius: 4px; text-align: center;",
-                                "🔄 Verbinde mit Server..."
+                                "🔄 "
+                                {t!("sync-connecting")}
                             }
                         },
                         LoginState::WaitingForUser { login_url, poll_url: _, token: _ } => {
@@ -613,32 +671,35 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                     div { style: "display: flex; align-items: center; gap: 12px; margin-bottom: 12px;",
                                         div { style: "font-size: 32px; animation: spin 2s linear infinite;", "💠" }
                                         div {
-                                            p { style: "margin: 0; font-weight: 600; font-size: 16px;", "Warte auf Anmeldung..." }
+                                            p { style: "margin: 0; font-weight: 600; font-size: 16px;", {t!("sync-waiting")} } // Waiting for login message
                                             p { style: "margin: 4px 0 0 0; font-size: 12px; color: #666;",
-                                                "Polling läuft im Hintergrund (max. 5 Minuten)"
+                                                {t!("sync-polling-background")} // Polling in background message
                                             }
                                         }
                                     }
-                                    p { style: "margin: 0 0 12px 0; font-size: 14px;",
-                                        "Bitte öffnen Sie diesen Link in Ihrem Browser und melden Sie sich an:"
-                                    }
+                                    p { style: "margin: 0 0 12px 0; font-size: 14px;", {t!("sync-login-instructions")} } // Login instructions
                                     a {
                                         href: "{login_url}",
                                         target: "_blank",
                                         style: "display: block; padding: 12px; background: #0066cc; color: white; text-decoration: none; border-radius: 4px; text-align: center; font-weight: 600;",
-                                        "🌐 Im Browser öffnen"
+                                        "🌐 "
+                                        {t!("sync-login-browser")}
                                     }
                                 }
                             }
                         }
                         LoginState::Success => rsx! {
                             div { style: "padding: 12px; background: #d4edda; border-radius: 4px; text-align: center; color: #155724;",
-                                "✅ Anmeldung erfolgreich!"
+                                "\u{2705} " // Login success message
+                                {t!("sync-login-success")}
                             }
                         },
                         LoginState::Error(error) => rsx! {
                             div { style: "padding: 12px; background: #f8d7da; border-radius: 4px; color: #721c24;",
-                                p { style: "margin: 0 0 12px 0; font-weight: 600;", "❌ Fehler bei der Anmeldung" }
+                                p { style: "margin: 0 0 12px 0; font-weight: 600;",
+                                    "\u{274c} "
+                                    {t!("sync-error")}
+                                } // Login error heading
                                 p { style: "margin: 0; font-size: 14px;", "{error}" }
                                 button {
                                     class: "btn-primary",
@@ -653,14 +714,15 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     // Info box
                     div { style: "margin-top: 16px; padding: 12px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid #0066cc;",
                         p { style: "margin: 0 0 8px 0; font-size: 14px; font-weight: 600;",
-                            "ℹ️ Wie funktioniert die Anmeldung?"
+                            "\u{2139}\u{fe0f} " // How login works heading
+                            {t!("sync-login-info-title")}
                         }
                         ul { style: "margin: 0; padding-left: 20px; font-size: 13px; color: #555;",
-                            li { "Klicken Sie auf 'Mit Nextcloud anmelden'" }
-                            li { "Öffnen Sie den Link im Browser" }
-                            li { "Melden Sie sich bei Ihrer Nextcloud an" }
-                            li { "Bestätigen Sie den Zugriff für diese App" }
-                            li { "Kehren Sie zur App zurück und klicken Sie 'Weiter'" }
+                            li { {t!("sync-login-step1")} } // Step 1: Click login button
+                            li { {t!("sync-login-step2")} } // Step 2: Open browser link
+                            li { {t!("sync-login-step3")} } // Step 3: Login to Nextcloud
+                            li { {t!("sync-login-step4")} } // Step 4: Confirm access
+                            li { {t!("sync-login-step5")} } // Step 5: Return to app
                         }
                     }
                 }

@@ -1,21 +1,21 @@
 use std::fmt;
 
-/// Zentrale Error-Typen für die Stalltagebuch-App
+/// Central error types for the Quail Diary app
 #[derive(Debug)]
 pub enum AppError {
-    /// Datenbankfehler (rusqlite)
+    /// Database error (rusqlite)
     Database(rusqlite::Error),
-    /// Dateisystem-Fehler
+    /// Filesystem error
     Filesystem(std::io::Error),
-    /// Validierungsfehler (z.B. ungültige Eingaben)
+    /// Validation error (e.g. invalid inputs)
     Validation(String),
-    /// Ressource nicht gefunden
+    /// Resource not found
     NotFound(String),
-    /// Berechtigung fehlt (z.B. Kamera)
+    /// Permission denied (e.g. camera)
     PermissionDenied(String),
-    /// Bildverarbeitungsfehler
+    /// Image processing error
     ImageProcessing(String),
-    /// Allgemeiner Fehler
+    /// General error
     #[allow(dead_code)]
     Other(String),
 }
@@ -23,12 +23,12 @@ pub enum AppError {
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AppError::Database(e) => write!(f, "Datenbankfehler: {}", e),
-            AppError::Filesystem(e) => write!(f, "Dateisystem-Fehler: {}", e),
-            AppError::Validation(msg) => write!(f, "Validierungsfehler: {}", msg),
-            AppError::NotFound(msg) => write!(f, "Nicht gefunden: {}", msg),
-            AppError::PermissionDenied(msg) => write!(f, "Berechtigung fehlt: {}", msg),
-            AppError::ImageProcessing(msg) => write!(f, "Bildverarbeitungsfehler: {}", msg),
+            AppError::Database(e) => write!(f, "Database error: {}", e),
+            AppError::Filesystem(e) => write!(f, "Filesystem error: {}", e),
+            AppError::Validation(msg) => write!(f, "Validation error: {}", msg),
+            AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
+            AppError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
+            AppError::ImageProcessing(msg) => write!(f, "Image processing error: {}", msg),
             AppError::Other(msg) => write!(f, "{}", msg),
         }
     }
@@ -36,7 +36,7 @@ impl fmt::Display for AppError {
 
 impl std::error::Error for AppError {}
 
-// Conversions von anderen Error-Typen
+// Conversions from other error types
 impl From<rusqlite::Error> for AppError {
     fn from(e: rusqlite::Error) -> Self {
         AppError::Database(e)
@@ -49,22 +49,19 @@ impl From<std::io::Error> for AppError {
     }
 }
 
-/// User-friendly Fehlermeldungen für UI
+/// User-friendly error messages for UI (can be translated via i18n)
 impl AppError {
     #[allow(dead_code)]
     pub fn user_message(&self) -> String {
         match self {
-            AppError::Database(_) => {
-                "Ein Datenbankfehler ist aufgetreten. Bitte versuchen Sie es erneut.".to_string()
-            }
+            AppError::Database(_) => "A database error occurred. Please try again.".to_string(),
             AppError::Filesystem(_) => {
-                "Fehler beim Zugriff auf Dateien. Bitte prüfen Sie die App-Berechtigungen."
-                    .to_string()
+                "Error accessing files. Please check app permissions.".to_string()
             }
             AppError::Validation(msg) => msg.clone(),
-            AppError::NotFound(msg) => format!("{} wurde nicht gefunden.", msg),
-            AppError::PermissionDenied(msg) => format!("Berechtigung erforderlich: {}", msg),
-            AppError::ImageProcessing(_) => "Fehler beim Verarbeiten des Bildes.".to_string(),
+            AppError::NotFound(msg) => format!("{} was not found.", msg),
+            AppError::PermissionDenied(msg) => format!("Permission required: {}", msg),
+            AppError::ImageProcessing(_) => "Error processing image.".to_string(),
             AppError::Other(msg) => msg.clone(),
         }
     }

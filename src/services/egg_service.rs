@@ -2,7 +2,7 @@ use crate::error::AppError;
 use crate::models::EggRecord;
 use rusqlite::{params, Connection};
 
-/// Erstellt einen neuen Eier-Eintrag
+/// Creates a new egg record
 pub fn add_egg_record(conn: &Connection, record: &EggRecord) -> Result<i64, AppError> {
     let date_str = record.record_date.format("%Y-%m-%d").to_string();
 
@@ -14,7 +14,7 @@ pub fn add_egg_record(conn: &Connection, record: &EggRecord) -> Result<i64, AppE
     Ok(conn.last_insert_rowid())
 }
 
-/// Lädt einen Eier-Eintrag für ein bestimmtes Datum
+/// Loads an egg record for a specific date
 pub fn get_egg_record(conn: &Connection, date: &str) -> Result<EggRecord, AppError> {
     let mut stmt = conn.prepare(
         "SELECT id, uuid, record_date, total_eggs, notes 
@@ -27,7 +27,7 @@ pub fn get_egg_record(conn: &Connection, date: &str) -> Result<EggRecord, AppErr
     Ok(record)
 }
 
-/// Aktualisiert einen existierenden Eier-Eintrag
+/// Updates an existing egg record
 pub fn update_egg_record(conn: &Connection, record: &EggRecord) -> Result<(), AppError> {
     let date_str = record.record_date.format("%Y-%m-%d").to_string();
 
@@ -40,7 +40,7 @@ pub fn update_egg_record(conn: &Connection, record: &EggRecord) -> Result<(), Ap
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
-            "Eintrag für {} nicht gefunden",
+            "Record for {} not found",
             date_str
         )));
     }
@@ -48,7 +48,7 @@ pub fn update_egg_record(conn: &Connection, record: &EggRecord) -> Result<(), Ap
     Ok(())
 }
 
-/// Löscht einen Eier-Eintrag
+/// Deletes an egg record
 pub fn delete_egg_record(conn: &Connection, date: &str) -> Result<(), AppError> {
     let rows_affected = conn.execute(
         "DELETE FROM egg_records WHERE record_date = ?1",
@@ -56,16 +56,13 @@ pub fn delete_egg_record(conn: &Connection, date: &str) -> Result<(), AppError> 
     )?;
 
     if rows_affected == 0 {
-        return Err(AppError::NotFound(format!(
-            "Eintrag für {} nicht gefunden",
-            date
-        )));
+        return Err(AppError::NotFound(format!("Record for {} not found", date)));
     }
 
     Ok(())
 }
 
-/// Lädt alle Eier-Einträge für einen Zeitraum (sortiert nach Datum absteigend)
+/// Loads all egg records for a time period (sorted by date descending)
 pub fn list_egg_records(
     conn: &Connection,
     start_date: Option<&str>,

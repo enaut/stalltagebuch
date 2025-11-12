@@ -1,8 +1,8 @@
 use crate::error::AppError;
 use chrono::NaiveDate;
-use serde::{Deserialize, Serialize};
 use rusqlite::types::Type;
 use rusqlite::Row;
+use serde::{Deserialize, Serialize};
 use uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -15,7 +15,7 @@ pub struct EggRecord {
 }
 
 impl EggRecord {
-    /// Erstellt einen neuen Eier-Eintrag
+    /// Creates a new egg record
     #[allow(dead_code)]
     pub fn new(record_date: NaiveDate, total_eggs: i32) -> Self {
         Self {
@@ -27,28 +27,28 @@ impl EggRecord {
         }
     }
 
-    /// Validiert den Eier-Eintrag
+    /// Validates the egg record
     #[allow(dead_code)]
     pub fn validate(&self) -> Result<(), AppError> {
-        // Anzahl darf nicht negativ sein
+        // Count must not be negative
         if self.total_eggs < 0 {
             return Err(AppError::Validation(
-                "Anzahl der Eier darf nicht negativ sein".to_string(),
+                "Egg count must not be negative".to_string(),
             ));
         }
 
-        // Realistische Obergrenze (z.B. max 100 Eier pro Tag)
+        // Realistic upper limit (e.g. max 100 eggs per day)
         if self.total_eggs > 100 {
             return Err(AppError::Validation(
-                "Anzahl scheint unrealistisch hoch zu sein".to_string(),
+                "Egg count seems unrealistically high".to_string(),
             ));
         }
 
-        // Datum darf nicht zu weit in der Zukunft liegen
+        // Date must not be in the future
         let today = chrono::Local::now().date_naive();
         if self.record_date > today {
             return Err(AppError::Validation(
-                "Datum darf nicht in der Zukunft liegen".to_string(),
+                "Date must not be in the future".to_string(),
             ));
         }
 

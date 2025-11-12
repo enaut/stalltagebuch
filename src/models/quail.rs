@@ -3,17 +3,17 @@ use rusqlite::Row;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Wachtel {
+pub struct Quail {
     pub id: Option<i64>,
     pub uuid: String,
     pub name: String,
     pub gender: Gender,
-    pub ring_color: Option<Ringfarbe>,
+    pub ring_color: Option<RingColor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum Ringfarbe {
+pub enum RingColor {
     Lila,
     Rosa,
     Hellblau,
@@ -26,67 +26,67 @@ pub enum Ringfarbe {
     Gruen, // Speicherung als gruen (ASCII) – Anzeige als Grün
 }
 
-impl Ringfarbe {
+impl RingColor {
     pub fn as_str(&self) -> &str {
         match self {
-            Ringfarbe::Lila => "lila",
-            Ringfarbe::Rosa => "rosa",
-            Ringfarbe::Hellblau => "hellblau",
-            Ringfarbe::Dunkelblau => "dunkelblau",
-            Ringfarbe::Rot => "rot",
-            Ringfarbe::Orange => "orange",
-            Ringfarbe::Weiss => "weiss",
-            Ringfarbe::Gelb => "gelb",
-            Ringfarbe::Schwarz => "schwarz",
-            Ringfarbe::Gruen => "gruen",
+            RingColor::Lila => "lila",
+            RingColor::Rosa => "rosa",
+            RingColor::Hellblau => "hellblau",
+            RingColor::Dunkelblau => "dunkelblau",
+            RingColor::Rot => "rot",
+            RingColor::Orange => "orange",
+            RingColor::Weiss => "weiss",
+            RingColor::Gelb => "gelb",
+            RingColor::Schwarz => "schwarz",
+            RingColor::Gruen => "gruen",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
-            "lila" => Ringfarbe::Lila,
-            "rosa" => Ringfarbe::Rosa,
-            "hellblau" => Ringfarbe::Hellblau,
-            "dunkelblau" => Ringfarbe::Dunkelblau,
-            "rot" => Ringfarbe::Rot,
-            "orange" => Ringfarbe::Orange,
-            "weiß" | "weiss" => Ringfarbe::Weiss,
-            "gelb" => Ringfarbe::Gelb,
-            "schwarz" => Ringfarbe::Schwarz,
-            "grün" | "gruen" => Ringfarbe::Gruen,
-            _ => Ringfarbe::Lila, // Fallback – sollte eigentlich nicht passieren
+            "lila" => RingColor::Lila,
+            "rosa" => RingColor::Rosa,
+            "hellblau" => RingColor::Hellblau,
+            "dunkelblau" => RingColor::Dunkelblau,
+            "rot" => RingColor::Rot,
+            "orange" => RingColor::Orange,
+            "weiß" | "weiss" => RingColor::Weiss,
+            "gelb" => RingColor::Gelb,
+            "schwarz" => RingColor::Schwarz,
+            "grün" | "gruen" => RingColor::Gruen,
+            _ => RingColor::Lila, // Default fallback
         }
     }
 
     #[allow(dead_code)]
     pub fn display_name(&self) -> &str {
         match self {
-            Ringfarbe::Lila => "Lila",
-            Ringfarbe::Rosa => "Rosa",
-            Ringfarbe::Hellblau => "Hellblau",
-            Ringfarbe::Dunkelblau => "Dunkelblau",
-            Ringfarbe::Rot => "Rot",
-            Ringfarbe::Orange => "Orange",
-            Ringfarbe::Weiss => "Weiß",
-            Ringfarbe::Gelb => "Gelb",
-            Ringfarbe::Schwarz => "Schwarz",
-            Ringfarbe::Gruen => "Grün",
+            RingColor::Lila => "Lila",
+            RingColor::Rosa => "Rosa",
+            RingColor::Hellblau => "Hellblau",
+            RingColor::Dunkelblau => "Dunkelblau",
+            RingColor::Rot => "Rot",
+            RingColor::Orange => "Orange",
+            RingColor::Weiss => "Weiß",
+            RingColor::Gelb => "Gelb",
+            RingColor::Schwarz => "Schwarz",
+            RingColor::Gruen => "Grün",
         }
     }
 
     #[allow(dead_code)]
-    pub fn all() -> &'static [Ringfarbe] {
-        static ALL: [Ringfarbe; 10] = [
-            Ringfarbe::Lila,
-            Ringfarbe::Rosa,
-            Ringfarbe::Hellblau,
-            Ringfarbe::Dunkelblau,
-            Ringfarbe::Rot,
-            Ringfarbe::Orange,
-            Ringfarbe::Weiss,
-            Ringfarbe::Gelb,
-            Ringfarbe::Schwarz,
-            Ringfarbe::Gruen,
+    pub fn all() -> &'static [RingColor] {
+        static ALL: [RingColor; 10] = [
+            RingColor::Lila,
+            RingColor::Rosa,
+            RingColor::Hellblau,
+            RingColor::Dunkelblau,
+            RingColor::Rot,
+            RingColor::Orange,
+            RingColor::Weiss,
+            RingColor::Gelb,
+            RingColor::Schwarz,
+            RingColor::Gruen,
         ];
         &ALL
     }
@@ -126,8 +126,8 @@ impl Gender {
     }
 }
 
-impl Wachtel {
-    /// Erstellt eine neue Wachtel mit generierten UUID
+impl Quail {
+    /// Creates a new quail with generated UUID
     pub fn new(name: String) -> Self {
         Self {
             id: None,
@@ -138,19 +138,17 @@ impl Wachtel {
         }
     }
 
-    /// Validiert alle Felder der Wachtel
+    /// Validates all fields of the quail
     pub fn validate(&self) -> Result<(), AppError> {
-        // Name darf nicht leer sein
+        // Name must not be empty
         if self.name.trim().is_empty() {
-            return Err(AppError::Validation(
-                "Name darf nicht leer sein".to_string(),
-            ));
+            return Err(AppError::Validation("Name must not be empty".to_string()));
         }
 
-        // Name sollte nicht zu lang sein
+        // Name should not be too long
         if self.name.len() > 100 {
             return Err(AppError::Validation(
-                "Name darf maximal 100 Zeichen lang sein".to_string(),
+                "Name must not exceed 100 characters".to_string(),
             ));
         }
 
@@ -158,7 +156,7 @@ impl Wachtel {
     }
 }
 
-impl<'r> TryFrom<&Row<'r>> for Wachtel {
+impl<'r> TryFrom<&Row<'r>> for Quail {
     type Error = rusqlite::Error;
 
     fn try_from(row: &Row<'r>) -> Result<Self, Self::Error> {
@@ -168,12 +166,12 @@ impl<'r> TryFrom<&Row<'r>> for Wachtel {
         let gender_str: String = row.get(3)?;
         let ring_color_opt: Option<String> = row.get(4)?;
 
-        Ok(Wachtel {
+        Ok(Quail {
             id: Some(id),
             uuid,
             name,
             gender: Gender::from_str(&gender_str),
-            ring_color: ring_color_opt.map(|s| Ringfarbe::from_str(&s)),
+            ring_color: ring_color_opt.map(|s| RingColor::from_str(&s)),
         })
     }
 }
@@ -183,18 +181,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_wachtel() {
-        let wachtel = Wachtel::new("Test".to_string());
-        assert_eq!(wachtel.name, "Test");
-        assert_eq!(wachtel.gender, Gender::Unknown);
-        assert!(wachtel.uuid.len() > 0);
+    fn test_new_quail() {
+        let quail = Quail::new("Test".to_string());
+        assert_eq!(quail.name, "Test");
+        assert_eq!(quail.gender, Gender::Unknown);
+        assert!(quail.uuid.len() > 0);
     }
 
     #[test]
     fn test_validate_empty_name() {
-        let mut wachtel = Wachtel::new("".to_string());
-        wachtel.name = "   ".to_string();
-        assert!(wachtel.validate().is_err());
+        let mut quail = Quail::new("".to_string());
+        quail.name = "   ".to_string();
+        assert!(quail.validate().is_err());
     }
 
     #[test]

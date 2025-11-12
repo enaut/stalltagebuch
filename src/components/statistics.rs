@@ -1,5 +1,6 @@
-use dioxus::prelude::*;
 use crate::{database, services, Screen};
+use dioxus::prelude::*;
+use dioxus_i18n::t;
 
 #[component]
 pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
@@ -7,7 +8,7 @@ pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
     let mut trend = use_signal(|| Vec::<(String, i32)>::new());
     let mut error = use_signal(|| String::new());
     let mut selected_period = use_signal(|| "all".to_string());
-    
+
     let mut load_statistics = move || {
         match database::init_database() {
             Ok(conn) => {
@@ -16,68 +17,79 @@ pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     "week" => {
                         let today = chrono::Local::now().date_naive();
                         let week_ago = today - chrono::Duration::days(7);
-                        (Some(week_ago.format("%Y-%m-%d").to_string()), Some(today.format("%Y-%m-%d").to_string()))
+                        (
+                            Some(week_ago.format("%Y-%m-%d").to_string()),
+                            Some(today.format("%Y-%m-%d").to_string()),
+                        )
                     }
                     "month" => {
                         let today = chrono::Local::now().date_naive();
                         let month_ago = today - chrono::Duration::days(30);
-                        (Some(month_ago.format("%Y-%m-%d").to_string()), Some(today.format("%Y-%m-%d").to_string()))
+                        (
+                            Some(month_ago.format("%Y-%m-%d").to_string()),
+                            Some(today.format("%Y-%m-%d").to_string()),
+                        )
                     }
                     "year" => {
                         let today = chrono::Local::now().date_naive();
                         let year_ago = today - chrono::Duration::days(365);
-                        (Some(year_ago.format("%Y-%m-%d").to_string()), Some(today.format("%Y-%m-%d").to_string()))
+                        (
+                            Some(year_ago.format("%Y-%m-%d").to_string()),
+                            Some(today.format("%Y-%m-%d").to_string()),
+                        )
                     }
                     _ => (None, None),
                 };
-                
+
                 match services::analytics_service::calculate_statistics(
                     &conn,
                     start_date.as_deref(),
-                    end_date.as_deref()
+                    end_date.as_deref(),
                 ) {
                     Ok(statistics) => {
                         stats.set(Some(statistics));
                         error.set(String::new());
                     }
                     Err(e) => {
-                        error.set(format!("Fehler beim Berechnen: {}", e));
+                        error.set(format!("{}: {}", t!("error-calculation"), e));
+                        // Error message when statistics calculation fails
                     }
                 }
-                
-                // Lade Trend-Daten (letzte 30 Tage)
+
+                // Load trend data (last 30 days)
                 match services::analytics_service::get_recent_trend(&conn, 30) {
                     Ok(data) => trend.set(data),
-                    Err(e) => error.set(format!("Fehler beim Laden des Trends: {}", e)),
+                    Err(e) => error.set(format!("{}: {}", t!("error-trend-load"), e)), // Error message when loading trend data fails
                 }
             }
             Err(e) => {
-                error.set(format!("DB-Fehler: {}", e));
+                error.set(format!("{}: {}", t!("error-database"), e)); // Database connection error
             }
         }
     };
-    
+
     // Load on mount and when period changes
     use_effect(move || {
         load_statistics();
     });
-    
+
     rsx! {
         div {
             style: "padding: 16px; max-width: 800px; margin: 0 auto; min-height: 100vh; background: #f5f5f5;",
-            
+
             // Header
             div {
                 style: "margin-bottom: 20px; padding-top: 8px;",
                 h1 {
                     style: "color: #0066cc; margin: 0 0 16px 0; font-size: 24px; font-weight: 700;",
-                    "📊 Statistik"
+                    "📊 " // Statistics page title
+                    {t!("stats-title")}
                 }
-                
-                // Zeitraum-Filter
+
+                // Period filter
                 div {
                     style: "display: flex; gap: 8px; flex-wrap: wrap;",
-                    for (label, value) in [("Alle", "all"), ("Woche", "week"), ("Monat", "month"), ("Jahr", "year")] {
+                    for (label, value) in [(t!("period-all"), "all"), (t!("period-week"), "week"), (t!("period-month"), "month"), (t!("period-year"), "year")] { // Time period filter buttons
                         button {
                             style: if selected_period() == value {
                                 "padding: 8px 16px; background: #0066cc; color: white; border-radius: 8px; font-weight: 600;"
@@ -90,7 +102,7 @@ pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     }
                 }
             }
-            
+
             // Error
             if !error().is_empty() {
                 div {
@@ -98,64 +110,71 @@ pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     "{error}"
                 }
             }
-            
+
             // Statistiken
             if let Some(s) = stats() {
                 div {
                     style: "display: flex; flex-direction: column; gap: 12px;",
-                    
-                    // Übersicht-Karte
+
+                    // Overview card
                     div {
                         class: "card",
                         h2 {
                             style: "margin: 0 0 16px 0; font-size: 18px; color: #333;",
-                            "📈 Übersicht"
+                            "📈 " // Statistics overview section heading
+                            {t!("stats-overview")}
                         }
                         div {
                             style: "display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;",
-                            
-                            StatCard { label: "Gesamt Einträge", value: format!("{}", s.total_records), icon: "📋" }
-                            StatCard { label: "Gesamt Eier", value: format!("{}", s.total_eggs), icon: "🥚" }
-                            StatCard { label: "Minimum", value: format!("{}", s.min_eggs), icon: "⬇️" }
-                            StatCard { label: "Maximum", value: format!("{}", s.max_eggs), icon: "⬆️" }
+
+                            StatCard { label: t!("stats-total-records"), value: format!("{}", s.total_records), icon: "📋" } // Total number of egg records
+                            StatCard { label: t!("stats-total-eggs"), value: format!("{}", s.total_eggs), icon: "🥚" } // Total number of eggs collected
+                            StatCard { label: t!("stats-min"), value: format!("{}", s.min_eggs), icon: "⬇️" } // Minimum eggs in a single day
+                            StatCard { label: t!("stats-max"), value: format!("{}", s.max_eggs), icon: "⬆️" } // Maximum eggs in a single day
                         }
                     }
-                    
-                    // Durchschnitte-Karte
+
+                    // Averages card
                     div {
                         class: "card",
                         h2 {
                             style: "margin: 0 0 16px 0; font-size: 18px; color: #333;",
-                            "📊 Durchschnitte"
+                            "📊 " // Averages section heading
+                            {t!("stats-averages")}
                         }
                         div {
                             style: "display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;",
-                            
-                            StatCard { label: "Täglich", value: format!("{:.1}", s.daily_average), icon: "📅" }
-                            StatCard { label: "Wöchentlich", value: format!("{:.1}", s.weekly_average), icon: "📆" }
-                            StatCard { label: "Monatlich", value: format!("{:.1}", s.monthly_average), icon: "🗓️" }
+
+                            StatCard { label: t!("stats-daily-avg"), value: format!("{:.1}", s.daily_average), icon: "📅" } // Daily average eggs
+                            StatCard { label: t!("stats-weekly-avg"), value: format!("{:.1}", s.weekly_average), icon: "📆" } // Weekly average eggs
+                            StatCard { label: t!("stats-monthly-avg"), value: format!("{:.1}", s.monthly_average), icon: "🗓️" } // Monthly average eggs
                         }
                     }
-                    
-                    // Zeitraum-Info
+
+                    // Date range info
                     if let (Some(first), Some(last)) = (&s.first_date, &s.last_date) {
                         div {
                             class: "card",
                             style: "background: #e3f2fd;",
                             p {
                                 style: "margin: 0; font-size: 14px; color: #1565c0;",
-                                "📅 Zeitraum: {first} bis {last}"
+                                "📅 " // Date range display (from/to)
+                                {t!("stats-period")}
+                                ": {first} "
+                                {t!("stats-until")}
+                                " {last}"
                             }
                         }
                     }
-                    
-                    // Trend (einfache Liste der letzten 10 Tage)
+
+                    // Trend (simple list of last 10 days)
                     if !trend().is_empty() {
                         div {
                             class: "card",
                             h2 {
                                 style: "margin: 0 0 16px 0; font-size: 18px; color: #333;",
-                                "📈 Letzte 10 Tage"
+                                "📈 " // Last 10 days trend section heading
+                                {t!("stats-last-10-days")}
                             }
                             div {
                                 style: "display: flex; flex-direction: column; gap: 8px;",
@@ -174,10 +193,10 @@ pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
                 div {
                     class: "card",
                     style: "text-align: center; padding: 40px; color: #999;",
-                    "Keine Daten vorhanden"
+                    {t!("stats-no-data")} // Empty state when no statistics data available
                 }
             }
-            
+
             // Navigation
             div {
                 style: "margin-top: 20px;",
@@ -185,7 +204,8 @@ pub fn StatisticsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     class: "btn-primary",
                     style: "width: 100%;",
                     onclick: move |_| on_navigate.call(Screen::EggTracking(None)),
-                    "➕ Eier eintragen"
+                    "➕ " // Button to navigate to egg entry form
+                    {t!("stats-add-entry")}
                 }
             }
         }

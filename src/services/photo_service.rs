@@ -2,11 +2,11 @@ use crate::error::AppError;
 use crate::models::Photo;
 use rusqlite::{params, Connection, OptionalExtension};
 
-/// Gibt den absoluten Pfad zu einem Foto zurück (für UI-Anzeige)
+/// Returns the absolute path to a photo (for UI display)
 pub fn get_absolute_photo_path(relative_path: &str) -> String {
     #[cfg(target_os = "android")]
     {
-        // Fotos sind in /storage/emulated/0/Android/data/PACKAGE/files/photos/
+        // Photos are in /storage/emulated/0/Android/data/PACKAGE/files/photos/
         format!(
             "/storage/emulated/0/Android/data/de.teilgedanken.stalltagebuch/files/photos/{}",
             relative_path
@@ -19,7 +19,7 @@ pub fn get_absolute_photo_path(relative_path: &str) -> String {
     }
 }
 
-/// Benennt eine Foto-Datei mit UUID um und gibt den neuen Pfad zurück
+/// Renames a photo file with UUID and returns the new path
 fn rename_photo_with_uuid(original_path: &str) -> Result<(String, String), AppError> {
     eprintln!("=== rename_photo_with_uuid called ===");
     eprintln!("Original path: {}", original_path);
@@ -31,7 +31,7 @@ fn rename_photo_with_uuid(original_path: &str) -> Result<(String, String), AppEr
     eprintln!("Generated UUID: {}", uuid);
     eprintln!("New filename: {}", new_filename);
 
-    // Datei ist bereits im richtigen Verzeichnis, einfach dort umbenennen
+    // File is already in the correct directory, simply rename it there
     let old_path = std::path::Path::new(original_path);
 
     if let Some(parent_dir) = old_path.parent() {
@@ -74,7 +74,7 @@ fn rename_photo_with_uuid(original_path: &str) -> Result<(String, String), AppEr
 
 pub fn add_wachtel_photo(
     conn: &Connection,
-    wachtel_id: i64,
+    quail_id: i64,
     path: String,
     thumbnail_path: Option<String>,
     is_profile: bool,
@@ -82,7 +82,7 @@ pub fn add_wachtel_photo(
     eprintln!("=== add_wachtel_photo called ===");
     eprintln!(
         "Wachtel ID: {}, Path: {}, Thumbnail: {:?}, Is profile: {}",
-        wachtel_id, path, thumbnail_path, is_profile
+        quail_id, path, thumbnail_path, is_profile
     );
 
     // Benenne Foto mit UUID um
@@ -122,10 +122,10 @@ pub fn add_wachtel_photo(
     };
 
     conn.execute(
-        "INSERT INTO photos (uuid, wachtel_id, path, thumbnail_path, is_profile) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO photos (uuid, quail_id, path, thumbnail_path, is_profile) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             uuid,
-            wachtel_id,
+            quail_id,
             new_path,
             final_thumb,
             if is_profile { 1 } else { 0 }
@@ -173,18 +173,18 @@ pub fn add_event_photo(
     Ok(conn.last_insert_rowid())
 }
 
-pub fn list_wachtel_photos(conn: &Connection, wachtel_id: i64) -> Result<Vec<Photo>, AppError> {
+pub fn list_wachtel_photos(conn: &Connection, quail_id: i64) -> Result<Vec<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, wachtel_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE wachtel_id = ?1 ORDER BY id"
+        "SELECT id, uuid, quail_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE quail_id = ?1 ORDER BY id"
     )?;
-    let rows = stmt.query_map(params![wachtel_id], |row| {
+    let rows = stmt.query_map(params![quail_id], |row| {
         let relative_path: String = row.get(4)?;
         let relative_thumb: Option<String> = row.get(5)?;
 
         Ok(Photo {
             id: row.get(0)?,
             uuid: row.get(1)?,
-            wachtel_id: row.get(2)?,
+            quail_id: row.get(2)?,
             event_id: row.get(3)?,
             path: get_absolute_photo_path(&relative_path),
             thumbnail_path: relative_thumb.map(|t| get_absolute_photo_path(&t)),
@@ -196,7 +196,7 @@ pub fn list_wachtel_photos(conn: &Connection, wachtel_id: i64) -> Result<Vec<Pho
 
 pub fn list_event_photos(conn: &Connection, event_id: i64) -> Result<Vec<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, wachtel_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE event_id = ?1 ORDER BY id"
+        "SELECT id, uuid, quail_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE event_id = ?1 ORDER BY id"
     )?;
     let rows = stmt.query_map(params![event_id], |row| {
         let relative_path: String = row.get(4)?;
@@ -205,7 +205,7 @@ pub fn list_event_photos(conn: &Connection, event_id: i64) -> Result<Vec<Photo>,
         Ok(Photo {
             id: row.get(0)?,
             uuid: row.get(1)?,
-            wachtel_id: row.get(2)?,
+            quail_id: row.get(2)?,
             event_id: row.get(3)?,
             path: get_absolute_photo_path(&relative_path),
             thumbnail_path: relative_thumb.map(|t| get_absolute_photo_path(&t)),
@@ -215,19 +215,19 @@ pub fn list_event_photos(conn: &Connection, event_id: i64) -> Result<Vec<Photo>,
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-pub fn get_profile_photo(conn: &Connection, wachtel_id: i64) -> Result<Option<Photo>, AppError> {
+pub fn get_profile_photo(conn: &Connection, quail_id: i64) -> Result<Option<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, uuid, wachtel_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE wachtel_id = ?1 AND is_profile = 1 ORDER BY id LIMIT 1"
+        "SELECT id, uuid, quail_id, event_id, path, thumbnail_path, is_profile FROM photos WHERE quail_id = ?1 AND is_profile = 1 ORDER BY id LIMIT 1"
     )?;
     let res = stmt
-        .query_row(params![wachtel_id], |row| {
+        .query_row(params![quail_id], |row| {
             let relative_path: String = row.get(4)?;
             let relative_thumb: Option<String> = row.get(5)?;
 
             Ok(Photo {
                 id: row.get(0)?,
                 uuid: row.get(1)?,
-                wachtel_id: row.get(2)?,
+                quail_id: row.get(2)?,
                 event_id: row.get(3)?,
                 path: get_absolute_photo_path(&relative_path),
                 thumbnail_path: relative_thumb.map(|t| get_absolute_photo_path(&t)),
@@ -238,20 +238,16 @@ pub fn get_profile_photo(conn: &Connection, wachtel_id: i64) -> Result<Option<Ph
     Ok(res)
 }
 
-pub fn set_profile_photo(
-    conn: &Connection,
-    wachtel_id: i64,
-    photo_id: i64,
-) -> Result<(), AppError> {
+pub fn set_profile_photo(conn: &Connection, quail_id: i64, photo_id: i64) -> Result<(), AppError> {
     // Setze alle auf 0
     conn.execute(
-        "UPDATE photos SET is_profile = 0 WHERE wachtel_id = ?1",
-        params![wachtel_id],
+        "UPDATE photos SET is_profile = 0 WHERE quail_id = ?1",
+        params![quail_id],
     )?;
     // Ziel auf 1
     let rows = conn.execute(
-        "UPDATE photos SET is_profile = 1 WHERE id = ?1 AND wachtel_id = ?2",
-        params![photo_id, wachtel_id],
+        "UPDATE photos SET is_profile = 1 WHERE id = ?1 AND quail_id = ?2",
+        params![photo_id, quail_id],
     )?;
     if rows == 0 {
         return Err(AppError::NotFound(

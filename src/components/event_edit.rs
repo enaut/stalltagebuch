@@ -1,6 +1,6 @@
 use crate::{
     database, image_processing,
-    models::{EventType, WachtelEvent},
+    models::{EventType, QuailEvent},
     services::{event_service, photo_service},
     Screen,
 };
@@ -10,11 +10,11 @@ use dioxus::prelude::*;
 #[component]
 pub fn EventEditScreen(
     event_id: i64,
-    wachtel_id: i64,
+    quail_id: i64,
     on_navigate: EventHandler<Screen>,
 ) -> Element {
-    let mut event = use_signal(|| None::<WachtelEvent>);
-    let mut event_type = use_signal(|| EventType::AmLeben);
+    let mut event = use_signal(|| None::<QuailEvent>);
+    let mut event_type = use_signal(|| EventType::Alive);
     let mut event_date_str = use_signal(|| {
         chrono::Local::now()
             .date_naive()
@@ -74,7 +74,7 @@ pub fn EventEditScreen(
             ) {
                 Ok(_) => {
                     success.set(true);
-                    on_navigate.call(Screen::ProfileDetail(wachtel_id));
+                    on_navigate.call(Screen::ProfileDetail(quail_id));
                 }
                 Err(e) => error.set(format!("Speicherfehler: {}", e)),
             }
@@ -87,7 +87,7 @@ pub fn EventEditScreen(
     let mut handle_delete = move || {
         if let Ok(conn) = database::init_database() {
             match event_service::delete_event(&conn, event_id) {
-                Ok(_) => on_navigate.call(Screen::ProfileDetail(wachtel_id)),
+                Ok(_) => on_navigate.call(Screen::ProfileDetail(quail_id)),
                 Err(e) => error.set(format!("Löschen fehlgeschlagen: {}", e)),
             }
         }
@@ -99,7 +99,7 @@ pub fn EventEditScreen(
             div { style: "display:flex; align-items:center; gap:12px; margin-bottom:20px;",
                 button {
                     style: "padding:8px 12px; background:#e0e0e0; border-radius:8px;",
-                    onclick: move |_| on_navigate.call(Screen::ProfileDetail(wachtel_id)),
+                    onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id)),
                     "←"
                 }
                 h1 { style: "margin:0; font-size:22px; color:#0066cc;", "Ereignis bearbeiten" }
@@ -125,14 +125,14 @@ pub fn EventEditScreen(
                         onchange: move |ev| {
                             let v = ev.value();
                             let t = match v.as_str() {
-                                "Geboren" => EventType::Geboren,
-                                "AmLeben" => EventType::AmLeben,
-                                "Krank" => EventType::Krank,
-                                "Gesund" => EventType::Gesund,
-                                "MarkiertZumSchlachten" => EventType::MarkiertZumSchlachten,
-                                "Geschlachtet" => EventType::Geschlachtet,
-                                "Gestorben" => EventType::Gestorben,
-                                _ => EventType::AmLeben,
+                                "Geboren" => EventType::Born,
+                                "AmLeben" => EventType::Alive,
+                                "Krank" => EventType::Sick,
+                                "Gesund" => EventType::Healthy,
+                                "MarkiertZumSchlachten" => EventType::MarkedForSlaughter,
+                                "Geschlachtet" => EventType::Slaughtered,
+                                "Gestorben" => EventType::Died,
+                                _ => EventType::Alive,
                             };
                             event_type.set(t);
                         },
@@ -319,7 +319,7 @@ pub fn EventEditScreen(
                     }
                     button {
                         style: "flex:1; padding:14px; background:#e0e0e0; color:#333; border-radius:8px; font-weight:600;",
-                        onclick: move |_| on_navigate.call(Screen::ProfileDetail(wachtel_id)),
+                        onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id)),
                         "Abbrechen"
                     }
                     button {

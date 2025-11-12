@@ -2,7 +2,7 @@ use crate::error::AppError;
 use crate::models::EggRecord;
 use rusqlite::Connection;
 
-/// Statistik-Daten für Eier-Produktion
+/// Statistics data for egg production
 #[derive(Debug, Clone)]
 pub struct EggStatistics {
     pub total_records: i32,
@@ -16,13 +16,13 @@ pub struct EggStatistics {
     pub last_date: Option<String>,
 }
 
-/// Berechnet Statistiken für einen bestimmten Zeitraum
+/// Calculates statistics for a specific time period
 pub fn calculate_statistics(
     conn: &Connection,
     start_date: Option<&str>,
     end_date: Option<&str>,
 ) -> Result<EggStatistics, AppError> {
-    // Query für Zeitraum-Filter
+    // Query for time period filter
     let (query, params) = if let (Some(start), Some(end)) = (start_date, end_date) {
         (
             "SELECT 
@@ -134,27 +134,27 @@ pub fn calculate_statistics(
     })
 }
 
-/// Berechnet 7-Tage gleitenden Durchschnitt
+/// Calculates 7-day moving average
 fn calculate_weekly_average(
     conn: &Connection,
     start_date: Option<&str>,
     end_date: Option<&str>,
 ) -> Result<f64, AppError> {
-    // Simplified: nehme die letzten 7 Tage
+    // Simplified: take the last 7 days
     let records = crate::services::list_egg_records(conn, start_date, end_date)?;
 
     if records.len() < 7 {
         return Ok(records.iter().map(|r| r.total_eggs as f64).sum::<f64>() / records.len() as f64);
     }
 
-    // Nimm die letzten 7 Einträge
+    // Take the last 7 entries
     let last_seven: Vec<&EggRecord> = records.iter().rev().take(7).collect();
     let sum: i32 = last_seven.iter().map(|r| r.total_eggs).sum();
 
     Ok(sum as f64 / 7.0)
 }
 
-/// Berechnet 30-Tage Durchschnitt
+/// Calculates 30-day average
 fn calculate_monthly_average(
     conn: &Connection,
     start_date: Option<&str>,
@@ -166,14 +166,14 @@ fn calculate_monthly_average(
         return Ok(records.iter().map(|r| r.total_eggs as f64).sum::<f64>() / records.len() as f64);
     }
 
-    // Nimm die letzten 30 Einträge
+    // Take the last 30 entries
     let last_thirty: Vec<&EggRecord> = records.iter().rev().take(30).collect();
     let sum: i32 = last_thirty.iter().map(|r| r.total_eggs).sum();
 
     Ok(sum as f64 / 30.0)
 }
 
-/// Gibt aggregierte Daten für die letzten N Tage zurück
+/// Returns aggregated data for the last N days
 pub fn get_recent_trend(conn: &Connection, days: i32) -> Result<Vec<(String, i32)>, AppError> {
     let records = crate::services::list_egg_records(conn, None, None)?;
 

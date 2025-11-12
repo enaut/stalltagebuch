@@ -1,14 +1,15 @@
 use crate::database;
 use crate::image_processing;
-use crate::models::{Wachtel, WachtelEvent};
+use crate::models::{Quail, QuailEvent};
 use crate::services::{event_service, profile_service};
 use crate::Screen;
 use dioxus::prelude::*;
+use dioxus_i18n::t;
 
 #[component]
-pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> Element {
-    let mut profile = use_signal(|| None::<Wachtel>);
-    let mut events = use_signal(|| Vec::<WachtelEvent>::new());
+pub fn ProfileDetailScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> Element {
+    let mut profile = use_signal(|| None::<Quail>);
+    let mut events = use_signal(|| Vec::<QuailEvent>::new());
     let mut error = use_signal(|| String::new());
     let mut photos = use_signal(|| Vec::<crate::models::Photo>::new());
     let mut current_photo_index = use_signal(|| 0usize);
@@ -20,7 +21,7 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
             if let Ok(photo_list) =
-                crate::services::photo_service::list_wachtel_photos(&conn, wachtel_id)
+                crate::services::photo_service::list_wachtel_photos(&conn, quail_id)
             {
                 photos.set(photo_list);
             }
@@ -30,18 +31,18 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
     // Profil und Events laden
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
-            match profile_service::get_profile(&conn, wachtel_id) {
+            match profile_service::get_profile(&conn, quail_id) {
                 Ok(p) => {
                     profile.set(Some(p));
                     error.set(String::new());
                 }
-                Err(e) => error.set(format!("Fehler beim Laden: {}", e)),
+                Err(e) => error.set(format!("{}: {}", t!("error-load-failed"), e)), // Failed to load
             }
 
             // Load events
-            match event_service::get_events_for_wachtel(&conn, wachtel_id) {
+            match event_service::get_events_for_wachtel(&conn, quail_id) {
                 Ok(evts) => events.set(evts),
-                Err(e) => eprintln!("Fehler beim Laden der Events: {}", e),
+                Err(e) => eprintln!("{}: {}", t!("error-load-events-failed"), e), // Failed to load events
             }
         }
     });
@@ -53,16 +54,16 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                 button {
                     style: "padding: 8px 16px; background: #e0e0e0; color: #333; border-radius: 8px; font-size: 16px;",
                     onclick: move |_| on_navigate.call(Screen::ProfileList),
-                    "← Zurück"
+                    "← " {t!("action-back")} // Back
                 }
                 h1 { style: "margin: 0; font-size: 26px; color: #0066cc; font-weight: 700;",
-                    "Profil"
+                    {t!("profile-detail-title")} // Profile
                 }
             }
 
             if !error().is_empty() {
                 div { style: "background: #fee; border: 1px solid #fcc; color: #c33; padding: 12px; margin-bottom: 16px; border-radius: 8px; font-size: 14px;",
-                    "⚠️ {error}"
+                    "⚠️ " {error}
                 }
             }
 
@@ -158,7 +159,7 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                                         let is_profile = first && photos().is_empty();
                                                         match crate::services::photo_service::add_wachtel_photo(
                                                             &conn,
-                                                            wachtel_id,
+                                                            quail_id,
                                                             path_str,
                                                             thumbnail_opt,
                                                             is_profile,
@@ -173,19 +174,19 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                                     }
                                                     if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(
                                                         &conn,
-                                                        wachtel_id,
+                                                        quail_id,
                                                     ) {
                                                         photos.set(photo_list);
                                                     }
                                                 }
                                             }
-                                            Err(e) => upload_error.set(format!("Fehler bei Auswahl: {}", e)),
+                                            Err(e) => upload_error.set(format!("{}: {}", t!("error-selection-failed"), e)), // Selection failed
                                         }
                                     }
                                     #[cfg(not(target_os = "android"))]
                                     {
                                         upload_error
-                                            .set("Mehrfach-Auswahl nur auf Android verfügbar".to_string());
+                                            .set(t!("error-multiselect-android-only")); // Multi-select only available on Android
                                     }
                                     uploading.set(false);
                                 });
@@ -193,7 +194,7 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                             if uploading() {
                                 "⏳"
                             } else {
-                                "🖼️ Galerie"
+                                "🖼️ " {t!("action-gallery")} // Gallery
                             }
                         }
                         // Kamera (Einzelfoto)
@@ -218,7 +219,7 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                                     let is_profile = photos().is_empty();
                                                     match crate::services::photo_service::add_wachtel_photo(
                                                         &conn,
-                                                        wachtel_id,
+                                                        quail_id,
                                                         path_str,
                                                         thumbnail_opt,
                                                         is_profile,
@@ -226,23 +227,23 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                                         Ok(_) => {
                                                             if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(
                                                                 &conn,
-                                                                wachtel_id,
+                                                                quail_id,
                                                             ) {
                                                                 photos.set(photo_list);
                                                             }
                                                         }
                                                         Err(e) => {
-                                                            upload_error.set(format!("Fehler beim Speichern: {}", e))
+                                                            upload_error.set(format!("{}: {}", t!("error-save-failed"), e)) // Failed to save
                                                         }
                                                     }
                                                 }
                                             }
-                                            Err(e) => upload_error.set(format!("Fehler bei Aufnahme: {}", e)),
+                                            Err(e) => upload_error.set(format!("{}: {}", t!("error-capture-failed"), e)), // Capture failed
                                         }
                                     }
                                     #[cfg(not(target_os = "android"))]
                                     {
-                                        upload_error.set("Kamera nur auf Android verfügbar".to_string());
+                                        upload_error.set(t!("error-camera-android-only")); // Camera only available on Android
                                     }
                                     uploading.set(false);
                                 });
@@ -250,7 +251,7 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                             if uploading() {
                                 "⏳"
                             } else {
-                                "📷 Foto"
+                                "📷 " {t!("action-photo")} // Photo
                             }
                         }
                     }
@@ -258,7 +259,7 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                     // Upload Error anzeigen falls vorhanden
                     if !upload_error().is_empty() {
                         div { style: "padding: 12px; background: #ffe6e6; border-radius: 8px; color: #cc0000; font-size: 14px; margin-top: 12px;",
-                            "⚠️ {upload_error}"
+                            "⚠️ " {upload_error}
                         }
                     }
 
@@ -277,41 +278,41 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                             // Status Badge basierend auf letztem Event
                             if let Some(latest_event) = events().first() {
                                 match latest_event.event_type {
-                                    crate::models::EventType::Geboren => rsx! {
+                                    crate::models::EventType::Born => rsx! {
                                         span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
-                                            "🐣 Geboren"
+                                            "🐣 " {t!("status-born")} // Born
                                         }
                                     },
-                                    crate::models::EventType::AmLeben => rsx! {
+                                    crate::models::EventType::Alive => rsx! {
                                         span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
-                                            "✅ Am Leben"
+                                            "✅ " {t!("status-alive")} // Alive
                                         }
                                     },
-                                    crate::models::EventType::Krank => rsx! {
+                                    crate::models::EventType::Sick => rsx! {
                                         span { style: "padding:6px 14px; background:#ffe0e0; border-radius:16px; font-size:13px; color:#cc3333;",
-                                            "🤒 Krank"
+                                            "🤒 " {t!("status-sick")} // Sick
                                         }
                                     },
-                                    crate::models::EventType::Gesund => rsx! {
+                                    crate::models::EventType::Healthy => rsx! {
                                         span { style: "padding:6px 14px; background:#e0ffe6; border-radius:16px; font-size:13px; color:#228833;",
-                                            "💪 Gesund"
+                                            "💪 " {t!("status-healthy")} // Healthy
                                         }
                                     },
-                                    crate::models::EventType::MarkiertZumSchlachten => {
+                                    crate::models::EventType::MarkedForSlaughter => {
                                         rsx! {
                                             span { style: "padding:6px 14px; background:#fff3e0; border-radius:16px; font-size:13px; color:#ff8800;",
-                                                "🥩 Markiert"
+                                                "🥩 " {t!("status-marked")} // Marked for slaughter
                                             }
                                         }
                                     }
-                                    crate::models::EventType::Geschlachtet => rsx! {
+                                    crate::models::EventType::Slaughtered => rsx! {
                                         span { style: "padding:6px 14px; background:#f0f0f0; border-radius:16px; font-size:13px; color:#666;",
-                                            "🥩 Geschlachtet"
+                                            "🥩 " {t!("status-slaughtered")} // Slaughtered
                                         }
                                     },
-                                    crate::models::EventType::Gestorben => rsx! {
+                                    crate::models::EventType::Died => rsx! {
                                         span { style: "padding:6px 14px; background:#f0f0f0; border-radius:16px; font-size:13px; color:#666;",
-                                            "🪦 Gestorben"
+                                            "🪦 " {t!("status-died")} // Died
                                         }
                                     },
                                 }
@@ -334,7 +335,7 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                     div { style: "margin-top:24px;",
                         div { style: "display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;",
                             h3 { style: "margin:0; font-size:18px; color:#333; font-weight:600;",
-                                "📅 Ereignisse"
+                                "📅 " {t!("events-timeline-title")} // Events
                             }
                             button {
                                 style: "padding:8px 16px; background:#0066cc; color:white; border-radius:8px; font-size:14px; font-weight:500;",
@@ -342,18 +343,18 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                     if let Some(p) = profile() {
                                         on_navigate
                                             .call(Screen::EventAdd {
-                                                wachtel_id: p.id.unwrap_or(0),
-                                                wachtel_name: p.name.clone(),
+                                                quail_id: p.id.unwrap_or(0),
+                                                quail_name: p.name.clone(),
                                             });
                                     }
                                 },
-                                "+ Ereignis"
+                                "+ " {t!("action-add-event")} // Add event
                             }
                         }
 
                         if events().is_empty() {
                             div { style: "padding:24px; text-align:center; background:#f5f5f5; border-radius:8px; color:#999;",
-                                "Keine Ereignisse vorhanden"
+                                {t!("events-empty")} // No events available
                             }
                         } else {
                             div { style: "display:flex; flex-direction:column; gap:12px;",
@@ -366,20 +367,20 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                                                 on_navigate
                                                     .call(Screen::EventEdit {
                                                         event_id: eid,
-                                                        wachtel_id,
+                                                        quail_id,
                                                     });
                                             }
                                         },
                                         div { style: "display:flex; gap:10px; align-items:center; margin-bottom:8px;",
                                             span { style: "font-size:20px;",
                                                 match event.event_type {
-                                                    crate::models::EventType::Geboren => "🐣",
-                                                    crate::models::EventType::AmLeben => "✅",
-                                                    crate::models::EventType::Krank => "🤒",
-                                                    crate::models::EventType::Gesund => "💪",
-                                                    crate::models::EventType::MarkiertZumSchlachten => "🥩",
-                                                    crate::models::EventType::Geschlachtet => "🥩",
-                                                    crate::models::EventType::Gestorben => "🪦",
+                                                    crate::models::EventType::Born => "🐣",
+                                                    crate::models::EventType::Alive => "✅",
+                                                    crate::models::EventType::Sick => "🤒",
+                                                    crate::models::EventType::Healthy => "💪",
+                                                    crate::models::EventType::MarkedForSlaughter => "🥩",
+                                                    crate::models::EventType::Slaughtered => "🥩",
+                                                    crate::models::EventType::Died => "🪦",
                                                 }
                                             }
                                             div {
@@ -406,14 +407,14 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                     button {
                         class: "btn-primary",
                         style: "width:100%; padding:14px; font-size:16px; font-weight:600; margin-top:24px;",
-                        onclick: move |_| on_navigate.call(Screen::ProfileEdit(wachtel_id)),
-                        "✏️ Bearbeiten"
+                        onclick: move |_| on_navigate.call(Screen::ProfileEdit(quail_id)),
+                        "✏️ " {t!("action-edit")} // Edit
                     }
                 }
             } else {
                 div { style: "padding:48px; text-align:center;",
                     div { style: "font-size:48px; margin-bottom:16px;", "⏳" }
-                    div { style: "color:#666;", "Lade Profil..." }
+                    div { style: "color:#666;", {t!("loading-profile")} } // Loading profile...
                 }
             }
 
@@ -432,7 +433,7 @@ pub fn ProfileDetailScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -
                         button {
                             style: "background:rgba(255,255,255,0.2); color:white; padding:8px 16px; border-radius:8px; font-size:16px;",
                             onclick: move |_| show_fullscreen.set(false),
-                            "✕ Schließen"
+                            "✕ " {t!("action-close")} // Close
                         }
                     }
                     // Hauptbild

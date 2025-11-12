@@ -1,5 +1,6 @@
 use crate::Screen;
 use dioxus::prelude::*;
+use dioxus_i18n::t;
 
 #[component]
 pub fn NavigationBar(current_screen: Screen, on_navigate: EventHandler<Screen>) -> Element {
@@ -16,7 +17,7 @@ pub fn NavigationBar(current_screen: Screen, on_navigate: EventHandler<Screen>) 
                     "flex: 1; padding: 12px; margin: 0 5px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; text-align: center; background: #ffffff; color: #333;"
                 },
                 onclick: move |_| on_navigate.call(Screen::Home),
-                "🏠 Home"
+                {format!("🏠 {}", t!("nav-home"))} // Home / Startseite
             }
 
             button {
@@ -26,7 +27,7 @@ pub fn NavigationBar(current_screen: Screen, on_navigate: EventHandler<Screen>) 
                     "flex: 1; padding: 12px; margin: 0 5px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; text-align: center; background: #ffffff; color: #333;"
                 },
                 onclick: move |_| on_navigate.call(Screen::ProfileList),
-                "🐦 Profile"
+                {format!("🐦 {}", t!("nav-profiles"))} // Profile
             }
 
             button {
@@ -36,7 +37,7 @@ pub fn NavigationBar(current_screen: Screen, on_navigate: EventHandler<Screen>) 
                     "flex: 1; padding: 12px; margin: 0 5px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; text-align: center; background: #ffffff; color: #333;"
                 },
                 onclick: move |_| on_navigate.call(Screen::EggHistory),
-                "🥚 Eier"
+                {format!("🥚 {}", t!("nav-eggs"))} // Eier
             }
 
             button {
@@ -46,7 +47,7 @@ pub fn NavigationBar(current_screen: Screen, on_navigate: EventHandler<Screen>) 
                     "flex: 1; padding: 12px; margin: 0 5px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; text-align: center; background: #ffffff; color: #333;"
                 },
                 onclick: move |_| on_navigate.call(Screen::Statistics),
-                "📊 Stats"
+                {format!("📊 {}", t!("nav-statistics"))} // Statistik
             }
         }
     }

@@ -1,9 +1,11 @@
 use dioxus::prelude::*;
+use dioxus_i18n::prelude::*;
 
 mod camera;
 mod components;
 mod database;
 mod error;
+mod i18n;
 mod image_processing;
 mod models;
 mod services;
@@ -21,7 +23,7 @@ fn main() {
     dioxus::launch(App);
 }
 
-/// Screen-Navigation für die App
+/// Screen navigation for the app
 #[derive(Clone, PartialEq, Debug)]
 pub enum Screen {
     Home,
@@ -29,15 +31,9 @@ pub enum Screen {
     ProfileDetail(i64),
     ProfileEdit(i64),
     AddProfile,
-    EventAdd {
-        wachtel_id: i64,
-        wachtel_name: String,
-    },
-    EventEdit {
-        event_id: i64,
-        wachtel_id: i64,
-    },
-    EggTracking(Option<String>), // Option<String> für das Datum im YYYY-MM-DD Format
+    EventAdd { quail_id: i64, quail_name: String },
+    EventEdit { event_id: i64, quail_id: i64 },
+    EggTracking(Option<String>), // Date in YYYY-MM-DD format
     EggHistory,
     Statistics,
     Settings,
@@ -46,6 +42,7 @@ pub enum Screen {
 #[component]
 fn App() -> Element {
     let mut current_screen = use_signal(|| Screen::Home);
+    use_init_i18n(i18n::init_i18n);
 
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
@@ -63,27 +60,27 @@ fn App() -> Element {
                         ProfileListScreen { on_navigate: move |s| current_screen.set(s) }
                     },
                     Screen::ProfileDetail(id) => rsx! {
-                        ProfileDetailScreen { wachtel_id: id, on_navigate: move |s| current_screen.set(s) }
+                        ProfileDetailScreen { quail_id: id, on_navigate: move |s| current_screen.set(s) }
                     },
                     Screen::ProfileEdit(id) => rsx! {
-                        ProfileEditScreen { wachtel_id: id, on_navigate: move |s| current_screen.set(s) }
+                        ProfileEditScreen { quail_id: id, on_navigate: move |s| current_screen.set(s) }
                     },
                     Screen::AddProfile => rsx! {
                         AddProfileScreen { on_navigate: move |s| current_screen.set(s) }
                     },
-                    Screen::EventAdd { wachtel_id, wachtel_name } => {
+                    Screen::EventAdd { quail_id, quail_name } => {
                         rsx! {
                             EventAdd {
-                                wachtel_id,
-                                wachtel_name,
+                                quail_id,
+                                quail_name,
                                 on_navigate: move |s| current_screen.set(s),
                             }
                         }
                     }
-                    Screen::EventEdit { event_id, wachtel_id } => rsx! {
+                    Screen::EventEdit { event_id, quail_id } => rsx! {
                         EventEditScreen {
                             event_id,
-                            wachtel_id,
+                            quail_id,
                             on_navigate: move |s| current_screen.set(s),
                         }
                     },

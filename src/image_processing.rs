@@ -33,7 +33,7 @@ pub fn process_photo(
     Ok((main_path, thumb_path))
 }
 
-/// Ermittelt eine einfache MIME-Type basierend auf der Dateiendung
+/// Determines a simple MIME type based on file extension
 fn guess_mime_from_ext(path: &Path) -> &'static str {
     match path
         .extension()
@@ -51,18 +51,18 @@ fn guess_mime_from_ext(path: &Path) -> &'static str {
     }
 }
 
-/// Liest ein Bild von `path` und liefert eine Data-URL (Base64) zurück
+/// Reads an image from `path` and returns a data URL (Base64)
 pub fn image_path_to_data_url(path: &str) -> Result<String, AppError> {
     let p = Path::new(path);
     let mime = guess_mime_from_ext(p);
     let data = std::fs::read(p)
-        .map_err(|e| AppError::ImageProcessing(format!("Bild lesen fehlgeschlagen: {}", e)))?;
+        .map_err(|e| AppError::ImageProcessing(format!("Reading image failed: {}", e)))?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(data);
     Ok(format!("data:{};base64,{}", mime, b64))
 }
 
-/// Erstellt ein Thumbnail für ein Bild (Platzhalter-Implementierung)
-/// Kopiert aktuell nur die Datei mit _thumb.jpg Suffix
+/// Creates a thumbnail for an image (placeholder implementation)
+/// Currently only copies the file with _thumb.jpg suffix
 pub fn create_thumbnail(path: &str) -> Result<String, AppError> {
     let p = Path::new(path);
     let parent = p.parent().unwrap_or(Path::new("/"));
@@ -70,10 +70,9 @@ pub fn create_thumbnail(path: &str) -> Result<String, AppError> {
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
     let thumb_path = parent.join(format!("{}_thumb.{}", stem, ext));
 
-    // Kopiere Datei als Thumbnail (TODO: echtes Resizing)
-    std::fs::copy(p, &thumb_path).map_err(|e| {
-        AppError::ImageProcessing(format!("Thumbnail-Erstellung fehlgeschlagen: {}", e))
-    })?;
+    // Copy file as thumbnail (TODO: real resizing)
+    std::fs::copy(p, &thumb_path)
+        .map_err(|e| AppError::ImageProcessing(format!("Thumbnail creation failed: {}", e)))?;
 
     Ok(thumb_path.to_string_lossy().to_string())
 }

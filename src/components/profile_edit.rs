@@ -1,13 +1,14 @@
 use crate::{
     database,
-    models::{Gender, Ringfarbe, Wachtel},
+    models::{Gender, Quail, RingColor},
     services, Screen,
 };
 use dioxus::prelude::*;
+use dioxus_i18n::t;
 
 #[component]
-pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> Element {
-    let mut profile = use_signal(|| None::<Wachtel>);
+pub fn ProfileEditScreen(quail_id: i64, on_navigate: EventHandler<Screen>) -> Element {
+    let mut profile = use_signal(|| None::<Quail>);
     let mut name = use_signal(|| String::new());
     let mut gender = use_signal(|| "unknown".to_string());
     let mut ring_color = use_signal(|| String::new());
@@ -21,7 +22,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
     use_effect(move || {
         match database::init_database() {
             Ok(conn) => {
-                match services::profile_service::get_profile(&conn, wachtel_id) {
+                match services::profile_service::get_profile(&conn, quail_id) {
                     Ok(p) => {
                         name.set(p.name.clone());
                         gender.set(p.gender.as_str().to_string());
@@ -31,11 +32,12 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                         profile.set(Some(p));
                     }
                     Err(e) => {
-                        error.set(format!("Fehler beim Laden: {}", e));
+                        error.set(format!("{}: {}", t!("error-load-failed"), e));
+                        // Failed to load
                     }
                 }
                 // Lade alle Fotos
-                match crate::services::photo_service::list_wachtel_photos(&conn, wachtel_id) {
+                match crate::services::photo_service::list_wachtel_photos(&conn, quail_id) {
                     Ok(photo_list) => {
                         // Finde aktuelles Profilbild
                         if let Some(profile_photo) = photo_list.iter().find(|p| p.is_profile) {
@@ -44,19 +46,19 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                         photos.set(photo_list);
                     }
                     Err(e) => {
-                        eprintln!("Fehler beim Laden der Fotos: {}", e);
+                        eprintln!("{}: {}", t!("error-load-photos-failed"), e); // Failed to load photos
                     }
                 }
             }
             Err(e) => {
-                error.set(format!("DB-Fehler: {}", e));
+                error.set(format!("{}: {}", t!("error-database"), e)); // Database error
             }
         }
     });
 
     let mut handle_submit = move || {
         if name().trim().is_empty() {
-            error.set("Name darf nicht leer sein".to_string());
+            error.set(t!("error-name-required")); // Name is required
             return;
         }
 
@@ -74,7 +76,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
             updated_profile.ring_color = if ring_color_trimmed.is_empty() {
                 None
             } else {
-                Some(Ringfarbe::from_str(ring_color_trimmed))
+                Some(RingColor::from_str(ring_color_trimmed))
             };
 
             match database::init_database() {
@@ -84,36 +86,37 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                             // Aktualisiere Profilbild falls ausgewählt
                             if let Some(photo_id) = selected_profile_photo_id() {
                                 let _ = crate::services::photo_service::set_profile_photo(
-                                    &conn, wachtel_id, photo_id,
+                                    &conn, quail_id, photo_id,
                                 );
                             }
                             success.set(true);
                             // Navigate back immediately
-                            on_navigate.call(Screen::ProfileDetail(wachtel_id));
+                            on_navigate.call(Screen::ProfileDetail(quail_id));
                         }
                         Err(e) => {
-                            error.set(format!("Fehler beim Speichern: {}", e));
+                            error.set(format!("{}: {}", t!("error-save-failed"), e));
+                            // Failed to save
                         }
                     }
                 }
                 Err(e) => {
-                    error.set(format!("DB-Fehler: {}", e));
+                    error.set(format!("{}: {}", t!("error-database"), e)); // Database error
                 }
             }
         }
     };
 
     let mut handle_delete = move || match database::init_database() {
-        Ok(conn) => match services::profile_service::delete_profile(&conn, wachtel_id) {
+        Ok(conn) => match services::profile_service::delete_profile(&conn, quail_id) {
             Ok(_) => {
                 on_navigate.call(Screen::ProfileList);
             }
             Err(e) => {
-                error.set(format!("Fehler beim Löschen: {}", e));
+                error.set(format!("{}: {}", t!("error-delete-failed"), e)); // Failed to delete
             }
         },
         Err(e) => {
-            error.set(format!("DB-Fehler: {}", e));
+            error.set(format!("{}: {}", t!("error-database"), e)); // Database error
         }
     };
 
@@ -126,12 +129,12 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                 style: "display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-top: 8px;",
                 button {
                     style: "padding: 8px 12px; background: #e0e0e0; color: #666; font-size: 20px; border-radius: 8px;",
-                    onclick: move |_| on_navigate.call(Screen::ProfileDetail(wachtel_id)),
+                    onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id)),
                     "←"
                 }
                 h1 {
                     style: "color: #0066cc; margin: 0; font-size: 24px; font-weight: 700; flex: 1;",
-                    "✏️ Profil bearbeiten"
+                    "✏️ " {t!("profile-edit-title")} // Edit profile
                 }
             }
 
@@ -139,7 +142,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
             if success() {
                 div {
                     style: "padding: 12px 16px; background: #d4edda; border-radius: 8px; color: #155724; font-size: 14px; margin-bottom: 16px; border-left: 3px solid #28a745;",
-                    "✓ Profil erfolgreich aktualisiert!"
+                    "✓ " {t!("success-profile-updated")} // Profile successfully updated!
                 }
             }
 
@@ -147,7 +150,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
             if !error().is_empty() {
                 div {
                     style: "padding: 12px 16px; background: #ffe6e6; border-radius: 8px; color: #cc0000; font-size: 14px; margin-bottom: 16px; border-left: 3px solid #cc0000;",
-                    "⚠️ {error}"
+                    "⚠️ " {error}
                 }
             }
 
@@ -160,12 +163,12 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                     style: "margin-bottom: 20px;",
                     label {
                         style: "display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;",
-                        "Name *"
+                        {t!("field-name-required")} // Name *
                     }
                     input {
                         style: "width: 100%; padding: 14px 16px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;",
                         r#type: "text",
-                        placeholder: "z.B. Henne 1",
+                        placeholder: "{t!(\"field-name-placeholder\")}", // e.g. Hen 1
                         value: "{name}",
                         oninput: move |e| name.set(e.value()),
                         autofocus: true,
@@ -177,15 +180,15 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                     style: "margin-bottom: 20px;",
                     label {
                         style: "display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;",
-                        "Geschlecht"
+                        {t!("field-gender")} // Gender
                     }
                     select {
                         style: "width: 100%; padding: 14px 16px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;",
                         value: "{gender}",
                         onchange: move |e| gender.set(e.value()),
-                        option { value: "unknown", "Unbekannt" }
-                        option { value: "female", "Weiblich" }
-                        option { value: "male", "Männlich" }
+                        option { value: "unknown", {t!("gender-unknown")} } // Unknown
+                        option { value: "female", {t!("gender-female")} } // Female
+                        option { value: "male", {t!("gender-male")} } // Male
                     }
                 }
 
@@ -194,29 +197,29 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                     style: "margin-bottom: 20px;",
                     label {
                         style: "display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;",
-                        "Ringfarbe"
+                        {t!("field-ring-color")} // Ring color
                     }
                     select {
                         style: "width: 100%; padding: 14px 16px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;",
                         value: "{ring_color}",
                         onchange: move |e| ring_color.set(e.value()),
-                        option { value: "", "Keine" }
-                        option { value: "lila", "Lila" }
-                        option { value: "rosa", "Rosa" }
-                        option { value: "hellblau", "Hellblau" }
-                        option { value: "dunkelblau", "Dunkelblau" }
-                        option { value: "rot", "Rot" }
-                        option { value: "orange", "Orange" }
-                        option { value: "weiss", "Weiß" }
-                        option { value: "gelb", "Gelb" }
-                        option { value: "schwarz", "Schwarz" }
-                        option { value: "gruen", "Grün" }
+                        option { value: "", {t!("ring-color-none")} } // None
+                        option { value: "lila", {t!("ring-color-purple")} } // Purple
+                        option { value: "rosa", {t!("ring-color-pink")} } // Pink
+                        option { value: "hellblau", {t!("ring-color-light-blue")} } // Light blue
+                        option { value: "dunkelblau", {t!("ring-color-dark-blue")} } // Dark blue
+                        option { value: "rot", {t!("ring-color-red")} } // Red
+                        option { value: "orange", {t!("ring-color-orange")} } // Orange
+                        option { value: "weiss", {t!("ring-color-white")} } // White
+                        option { value: "gelb", {t!("ring-color-yellow")} } // Yellow
+                        option { value: "schwarz", {t!("ring-color-black")} } // Black
+                        option { value: "gruen", {t!("ring-color-green")} } // Green
                     }
                 }
 
                 div {
                     style: "padding: 12px; background: #e3f2fd; border-radius: 8px; color: #0066cc; font-size: 13px; margin-bottom: 20px;",
-                    "ℹ️ Fotos werden in der Detailansicht hinzugefügt. Hier können Sie nur das Profilbild auswählen oder Fotos löschen."
+                    "ℹ️ " {t!("info-photos-detail-view")} // Photos are added in detail view. Here you can only select profile photo or delete photos.
                 }
 
                 // Photo Gallery with Profile Selection
@@ -224,13 +227,13 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                     style: "margin-bottom: 24px;",
                     label {
                         style: "display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;",
-                        "Fotos ({photos().len()})"
+                        {format!("{} ({})", t!("field-photos"), photos().len())} // Photos count
                     }
 
                     if photos().is_empty() {
                         div {
                             style: "padding: 24px; text-align: center; background: #f5f5f5; border-radius: 8px; color: #999;",
-                            "Keine Fotos vorhanden. Fügen Sie Fotos in der Detailansicht hinzu."
+                            {t!("photos-empty")} // No photos available. Add photos in detail view.
                         }
                     } else {
                         div {
@@ -268,7 +271,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                                     if photo.is_profile {
                                         div {
                                             style: "position: absolute; top: 4px; left: 4px; background: rgba(0, 102, 204, 0.9); color: white; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;",
-                                            "PROFIL"
+                                            {t!("badge-profile")} // PROFILE
                                         }
                                     }
                                     // Löschen-Button
@@ -280,7 +283,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                                                     match crate::services::photo_service::delete_photo(&conn, id) {
                                                         Ok(_) => {
                                                             // Reload photos
-                                                            if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(&conn, wachtel_id) {
+                                                            if let Ok(photo_list) = crate::services::photo_service::list_wachtel_photos(&conn, quail_id) {
                                                                 photos.set(photo_list);
                                                                 // Aktualisiere selected_profile_photo_id
                                                                 if selected_profile_photo_id() == Some(id) {
@@ -288,7 +291,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                                                                 }
                                                             }
                                                         }
-                                                        Err(e) => error.set(format!("Fehler beim Löschen: {}", e)),
+                                                        Err(e) => error.set(format!("{}: {}", t!("error-delete-failed"), e)), // Failed to delete
                                                     }
                                                 }
                                             }
@@ -309,7 +312,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                         }
                         div {
                             style: "margin-top: 12px; padding: 10px; background: #f9f9f9; border-radius: 6px; font-size: 12px; color: #666;",
-                            "Tippen Sie auf ein Foto, um es als Profilbild zu markieren."
+                            {t!("info-tap-photo-to-mark")} // Tap a photo to mark it as profile photo.
                         }
                     }
                 }
@@ -321,12 +324,12 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                         class: "btn-success",
                         style: "flex: 1; padding: 14px; font-size: 16px; font-weight: 600;",
                         onclick: move |_| handle_submit(),
-                        "✓ Speichern"
+                        "✓ " {t!("action-save")} // Save
                     }
                     button {
                         style: "flex: 1; padding: 14px; background: #e0e0e0; color: #666; font-size: 16px; font-weight: 600;",
-                        onclick: move |_| on_navigate.call(Screen::ProfileDetail(wachtel_id)),
-                        "✕ Abbrechen"
+                        onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id)),
+                        "✕ " {t!("action-cancel")} // Cancel
                     }
                 }
 
@@ -337,7 +340,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                         div {
                             div {
                                 style: "margin-bottom: 16px; padding: 12px; background: #fff3cd; border-radius: 8px; color: #856404;",
-                                "⚠️ Möchten Sie diese Wachtel wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden."
+                                "⚠️ " {t!("confirm-delete-quail")} // Do you really want to delete this quail? This action cannot be undone.
                             }
                             div {
                                 style: "display: flex; gap: 12px;",
@@ -345,12 +348,12 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                                     class: "btn-danger",
                                     style: "flex: 1; padding: 14px; font-size: 16px; font-weight: 600;",
                                     onclick: move |_| handle_delete(),
-                                    "🗑️ Endgültig löschen"
+                                    "🗑️ " {t!("action-delete-permanently")} // Delete permanently
                                 }
                                 button {
                                     style: "flex: 1; padding: 14px; background: #e0e0e0; color: #666; font-size: 16px; font-weight: 600;",
                                     onclick: move |_| show_delete_confirm.set(false),
-                                    "Abbrechen"
+                                    {t!("action-cancel")} // Cancel
                                 }
                             }
                         }
@@ -358,7 +361,7 @@ pub fn ProfileEditScreen(wachtel_id: i64, on_navigate: EventHandler<Screen>) -> 
                         button {
                             style: "width: 100%; padding: 12px; background: #ffe6e6; color: #cc0000; font-size: 14px; font-weight: 600; border: 1px solid #ffcccc; border-radius: 8px;",
                             onclick: move |_| show_delete_confirm.set(true),
-                            "🗑️ Wachtel löschen"
+                            "🗑️ " {t!("action-delete-quail")} // Delete quail
                         }
                     }
                 }
