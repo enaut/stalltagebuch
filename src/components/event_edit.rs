@@ -145,7 +145,7 @@ pub fn EventEditScreen(
                         option { value: "alive", {t!("event-type-alive")} }
                         option { value: "sick", {t!("event-type-sick")} }
                         option { value: "healthy", {t!("event-type-healthy")} }
-                        option { value: "marked_for_slaughter", {t!("event-type-marked-for-slaughter")} }
+                        option { value: "marked_for_slaughter", {t!("event-type-marked")} }
                         option { value: "slaughtered", {t!("event-type-slaughtered")} }
                         option { value: "died", {t!("event-type-died")} }
                     }

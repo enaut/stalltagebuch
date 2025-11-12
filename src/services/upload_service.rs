@@ -98,9 +98,6 @@ pub fn create_photo_metadata(
 pub fn create_quail_metadata(_conn: &Connection, quail: &Quail) -> Result<QuailMetadata, AppError> {
     let device_id = get_device_id();
 
-    // Check if profile photo exists
-    let has_profile_photo: bool = quail.profile_photo.is_some();
-
     Ok(QuailMetadata {
         uuid: quail.uuid.to_string(),
         name: quail.name.clone(),
@@ -109,7 +106,7 @@ pub fn create_quail_metadata(_conn: &Connection, quail: &Quail) -> Result<QuailM
         device_id,
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
-        has_profile_photo,
+        profile_photo: quail.profile_photo.map(|uuid| uuid.to_string()),
     })
 }
 
@@ -165,7 +162,7 @@ pub fn list_pending_photos(conn: &Connection) -> Result<Vec<Photo>, AppError> {
 /// Adds a photo to the sync queue
 pub fn add_to_sync_queue(conn: &Connection, photo_uuid: &uuid::Uuid) -> Result<(), AppError> {
     conn.execute(
-        "INSERT OR IGNORE INTO sync_queue (photo_uuid, status) VALUES (?1, 'pending')",
+        "INSERT OR IGNORE INTO sync_queue (photo_id, status) VALUES (?1, 'pending')",
         [&photo_uuid.to_string()],
     )?;
     Ok(())
@@ -181,10 +178,9 @@ pub fn update_sync_status(
     conn.execute(
         "UPDATE sync_queue 
          SET status = ?1, 
-             last_attempt = CURRENT_TIMESTAMP,
              retry_count = retry_count + 1,
-             error_message = ?2
-         WHERE photo_uuid = ?3",
+             last_error = ?2
+         WHERE photo_id = ?3",
         rusqlite::params![status, error_message, photo_uuid.to_string()],
     )?;
     Ok(())
@@ -443,13 +439,15 @@ pub async fn sync_all_quails(conn: &Connection) -> Result<usize, AppError> {
     }
 
     // Hole alle Wachtels
-    let mut stmt = conn.prepare("SELECT uuid, name, gender, ring_color, profile_photo FROM quails")?;
+    let mut stmt =
+        conn.prepare("SELECT uuid, name, gender, ring_color, profile_photo FROM quails")?;
     let quails: Vec<Quail> = stmt
         .query_map([], |row| {
             let uuid_str: String = row.get(0)?;
             let profile_photo_str: Option<String> = row.get(4)?;
             Ok(Quail {
-                uuid: uuid::Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                uuid: uuid::Uuid::parse_str(&uuid_str)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
                 name: row.get(1)?,
                 gender: crate::models::Gender::from_str(&row.get::<_, String>(2)?),
                 ring_color: row
@@ -464,7 +462,11 @@ pub async fn sync_all_quails(conn: &Connection) -> Result<usize, AppError> {
     let mut synced_count = 0;
 
     for quail in quails {
-        eprintln!("Syncing quail: uuid={}, name={}", quail.uuid.to_string(), quail.name);
+        eprintln!(
+            "Syncing quail: uuid={}, name={}",
+            quail.uuid.to_string(),
+            quail.name
+        );
         match sync_quail(
             conn,
             &quail,
@@ -520,8 +522,10 @@ pub async fn sync_all_events(conn: &Connection) -> Result<usize, AppError> {
                 })?;
 
             Ok(QuailEvent {
-                uuid: uuid::Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                quail_id: uuid::Uuid::parse_str(&quail_id_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                uuid: uuid::Uuid::parse_str(&uuid_str)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                quail_id: uuid::Uuid::parse_str(&quail_id_str)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
                 event_type: crate::models::EventType::from_str(&row.get::<_, String>(2)?),
                 event_date,
                 notes: row.get(4)?,
@@ -596,13 +600,17 @@ pub async fn sync_all_photos(conn: &Connection) -> Result<usize, AppError> {
     let mut uploaded_count = 0;
 
     for photo in pending_photos {
-        eprintln!("Processing photo: uuid={}, path={}", photo.uuid.to_string(), photo.path);
+        eprintln!(
+            "Processing photo: uuid={}, path={}",
+            photo.uuid.to_string(),
+            photo.path
+        );
 
         // Überspringe wenn bereits remote vorhanden
         if remote_uuids.contains(&photo.uuid.to_string()) {
-            eprintln!("Photo already exists remotely, marking as uploaded");
-            // Markiere als uploaded
-            update_sync_status(conn, &photo.uuid, "uploaded", None)?;
+            eprintln!("Photo already exists remotely, marking as completed");
+            // Markiere als completed
+            update_sync_status(conn, &photo.uuid, "completed", None)?;
             continue;
         }
 
@@ -628,7 +636,7 @@ pub async fn sync_all_photos(conn: &Connection) -> Result<usize, AppError> {
         {
             Ok(_) => {
                 eprintln!("Upload successful!");
-                update_sync_status(conn, &photo.uuid, "uploaded", None)?;
+                update_sync_status(conn, &photo.uuid, "completed", None)?;
                 uploaded_count += 1;
             }
             Err(e) => {
@@ -756,7 +764,8 @@ pub async fn sync_all_egg_records(conn: &Connection) -> Result<usize, AppError> 
 
             Ok((
                 crate::models::EggRecord {
-                    uuid: uuid::Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    uuid: uuid::Uuid::parse_str(&uuid_str)
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?,
                     record_date,
                     total_eggs,
                     notes,
@@ -783,7 +792,10 @@ pub async fn sync_all_egg_records(conn: &Connection) -> Result<usize, AppError> 
         .await
         {
             Ok(_) => {
-                eprintln!("Egg record sync successful: {}", egg_record.uuid.to_string());
+                eprintln!(
+                    "Egg record sync successful: {}",
+                    egg_record.uuid.to_string()
+                );
                 synced_count += 1;
             }
             Err(e) => {

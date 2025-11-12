@@ -23,7 +23,7 @@ pub struct QuailMetadata {
     pub device_id: String,
     pub created_at: String,
     pub updated_at: String,
-    pub has_profile_photo: bool,
+    pub profile_photo: Option<String>,
 }
 
 /// Metadata for an event

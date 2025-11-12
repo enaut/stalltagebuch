@@ -188,6 +188,8 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
     let mut login_state = use_signal(|| LoginState::NotStarted);
     let mut current_settings = use_signal(|| None::<SyncSettings>);
     let mut status_message = use_signal(|| String::new());
+    // Separater bool für laufende Synchronisierung, damit Anzeige sicher zurückgesetzt wird
+    let mut is_syncing = use_signal(|| false);
     let mut connection_status = use_signal(|| None::<ConnectionStatus>);
 
     // Load existing settings on mount
@@ -490,8 +492,13 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                 div { style: "width: 80px;" }
             }
 
-            // Status message
-            if !status_message().is_empty() {
+            // Statusanzeige
+            if is_syncing() {
+                div { style: "padding: 12px; margin-bottom: 16px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffb300; display: flex; align-items: center; gap: 8px;",
+                    span { style: "font-size: 18px;", "🔄" }
+                    span { "{status_message}" }
+                }
+            } else if !status_message().is_empty() {
                 div { style: "padding: 12px; margin-bottom: 16px; background: #f0f0f0; border-radius: 8px; border-left: 4px solid #0066cc;",
                     "{status_message}"
                 }
@@ -561,8 +568,8 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                             style: "flex: 1;",
                             onclick: move |_| {
                                 spawn(async move {
-                                    status_message
-                                        .set("🔄 Vollständige Synchronisierung läuft...".to_string());
+                                    is_syncing.set(true);
+                                    status_message.set(t!("sync-running").to_string());
                                     match database::init_database() {
                                         Ok(conn) => {
                                             match crate::services::upload_service::sync_all(&conn).await {
@@ -591,9 +598,15 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                         }
                                         Err(e) => {
                                             status_message
-                                                .set(format!("\u{274c} {}", t!("error-database", error: e.to_string())));
+                                                .set(
+                                                    format!(
+                                                        "\u{274c} {}",
+                                                        t!("error-database", error : e.to_string()),
+                                                    ),
+                                                );
                                         }
                                     }
+                                    is_syncing.set(false);
                                 });
                             },
                             {format!("🔄 {}", t!("sync-now"))}
