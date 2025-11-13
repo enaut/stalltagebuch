@@ -4,18 +4,26 @@ use rusqlite::{params, Connection};
 use uuid::Uuid;
 
 /// Creates a new egg record
-pub fn add_egg_record(conn: &Connection, record: &EggRecord) -> Result<Uuid, AppError> {
+pub async fn add_egg_record(conn: &Connection, record: &EggRecord) -> Result<Uuid, AppError> {
     let date_str = record.record_date.format("%Y-%m-%d").to_string();
 
     conn.execute(
         "INSERT INTO egg_records (uuid, record_date, total_eggs, notes) VALUES (?1, ?2, ?3, ?4)",
         params![
             record.uuid.to_string(),
-            date_str,
+            &date_str,
             record.total_eggs,
-            record.notes
+            &record.notes
         ],
     )?;
+
+    // Capture CRDT operation
+    crate::services::operation_capture::capture_egg_create(
+        conn,
+        &record.uuid.to_string(),
+        &date_str,
+        record.total_eggs,
+    ).await?;
 
     Ok(record.uuid)
 }
@@ -34,14 +42,14 @@ pub fn get_egg_record(conn: &Connection, date: &str) -> Result<EggRecord, AppErr
 }
 
 /// Updates an existing egg record
-pub fn update_egg_record(conn: &Connection, record: &EggRecord) -> Result<(), AppError> {
+pub async fn update_egg_record(conn: &Connection, record: &EggRecord) -> Result<(), AppError> {
     let date_str = record.record_date.format("%Y-%m-%d").to_string();
 
     let rows_affected = conn.execute(
         "UPDATE egg_records 
          SET total_eggs = ?1, notes = ?2, updated_at = CURRENT_TIMESTAMP 
          WHERE record_date = ?3",
-        params![record.total_eggs, record.notes, date_str],
+        params![record.total_eggs, &record.notes, &date_str],
     )?;
 
     if rows_affected == 0 {
@@ -51,11 +59,25 @@ pub fn update_egg_record(conn: &Connection, record: &EggRecord) -> Result<(), Ap
         )));
     }
 
+    // Capture CRDT operation
+    crate::services::operation_capture::capture_egg_update(
+        conn,
+        &record.uuid.to_string(),
+        record.total_eggs,
+    ).await?;
+
     Ok(())
 }
 
 /// Deletes an egg record
-pub fn delete_egg_record(conn: &Connection, date: &str) -> Result<(), AppError> {
+pub async fn delete_egg_record(conn: &Connection, date: &str) -> Result<(), AppError> {
+    // Get UUID before deletion
+    let uuid: String = conn.query_row(
+        "SELECT uuid FROM egg_records WHERE record_date = ?1",
+        params![date],
+        |row| row.get(0),
+    )?;
+
     let rows_affected = conn.execute(
         "DELETE FROM egg_records WHERE record_date = ?1",
         params![date],
@@ -64,6 +86,9 @@ pub fn delete_egg_record(conn: &Connection, date: &str) -> Result<(), AppError> 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!("Record for {} not found", date)));
     }
+
+    // Capture CRDT deletion
+    crate::services::operation_capture::capture_egg_delete(conn, &uuid).await?;
 
     Ok(())
 }

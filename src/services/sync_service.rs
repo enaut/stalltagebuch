@@ -5,7 +5,7 @@ use rusqlite::{Connection, Result};
 /// Loads the synchronization settings from the database
 pub fn load_sync_settings(conn: &Connection) -> Result<Option<SyncSettings>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, server_url, username, app_password, remote_path, enabled, last_sync, created_at, updated_at 
+        "SELECT id, server_url, username, app_password, remote_path, enabled, last_sync, device_id, format_version, created_at, updated_at 
          FROM sync_settings 
          ORDER BY id DESC 
          LIMIT 1"
@@ -20,8 +20,10 @@ pub fn load_sync_settings(conn: &Connection) -> Result<Option<SyncSettings>, App
             remote_path: row.get(4)?,
             enabled: row.get(5)?,
             last_sync: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
+            device_id: row.get(7)?,
+            format_version: row.get(8)?,
+            created_at: row.get(9)?,
+            updated_at: row.get(10)?,
         })
     });
 
@@ -41,14 +43,16 @@ pub fn save_sync_settings(conn: &Connection, settings: &SyncSettings) -> Result<
         // Update
         conn.execute(
             "UPDATE sync_settings 
-             SET server_url = ?1, username = ?2, app_password = ?3, remote_path = ?4, enabled = ?5
-             WHERE id = ?6",
+             SET server_url = ?1, username = ?2, app_password = ?3, remote_path = ?4, enabled = ?5, device_id = ?6, format_version = ?7
+             WHERE id = ?8",
             (
                 &settings.server_url,
                 &settings.username,
                 &settings.app_password,
                 &settings.remote_path,
                 settings.enabled,
+                &settings.device_id,
+                settings.format_version,
                 existing.id,
             ),
         )?;
@@ -56,14 +60,16 @@ pub fn save_sync_settings(conn: &Connection, settings: &SyncSettings) -> Result<
     } else {
         // Insert
         conn.execute(
-            "INSERT INTO sync_settings (server_url, username, app_password, remote_path, enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO sync_settings (server_url, username, app_password, remote_path, enabled, device_id, format_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             (
                 &settings.server_url,
                 &settings.username,
                 &settings.app_password,
                 &settings.remote_path,
                 settings.enabled,
+                &settings.device_id,
+                settings.format_version,
             ),
         )?;
         Ok(conn.last_insert_rowid())

@@ -44,6 +44,24 @@ fn App() -> Element {
     let mut current_screen = use_signal(|| Screen::Home);
     use_init_i18n(i18n::init_i18n);
 
+    // Auto-start background sync if configured
+    use_effect(move || {
+        match database::init_database() {
+            Ok(conn) => {
+                match services::sync_service::load_sync_settings(&conn) {
+                    Ok(Some(settings)) if settings.enabled => {
+                        eprintln!("Auto-starting background sync");
+                        services::background_sync::start_background_sync();
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to check sync settings: {}", e);
+            }
+        }
+    });
+
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS }

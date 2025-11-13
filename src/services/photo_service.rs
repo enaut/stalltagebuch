@@ -73,7 +73,7 @@ fn rename_photo_with_uuid(original_path: &str) -> Result<(String, String), AppEr
     Ok((new_filename, thumb_filename))
 }
 
-pub fn add_quail_photo(
+pub async fn add_quail_photo(
     conn: &Connection,
     quail_id: Uuid,
     path: String,
@@ -127,14 +127,26 @@ pub fn add_quail_photo(
         params![
             uuid.to_string(),
             quail_id.to_string(),
-            new_path,
-            final_thumb,
+            &new_path,
+            &final_thumb,
         ],
     )?;
+
+    // Capture CRDT operation
+    crate::services::operation_capture::capture_photo_create(
+        conn,
+        &uuid.to_string(),
+        Some(&quail_id.to_string()),
+        None,
+        &new_path,
+        final_thumb.as_deref(),
+    )
+    .await?;
+
     Ok(uuid)
 }
 
-pub fn add_event_photo(
+pub async fn add_event_photo(
     conn: &Connection,
     event_id: Uuid,
     path: String,
@@ -172,16 +184,30 @@ pub fn add_event_photo(
         params![
             uuid.to_string(),
             event_id.to_string(),
-            new_path,
-            final_thumb
+            &new_path,
+            &final_thumb
         ],
     )?;
+
+    // Capture CRDT operation
+    crate::services::operation_capture::capture_photo_create(
+        conn,
+        &uuid.to_string(),
+        None,
+        Some(&event_id.to_string()),
+        &new_path,
+        final_thumb.as_deref(),
+    )
+    .await?;
+
     Ok(uuid)
 }
 
 pub fn list_quail_photos(conn: &Connection, quail_uuid: &Uuid) -> Result<Vec<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT uuid, quail_id, event_id, path, thumbnail_path FROM photos WHERE quail_id = ?1",
+        "SELECT uuid, quail_id, event_id, COALESCE(relative_path, path) as rel_path, thumbnail_path 
+         FROM photos 
+         WHERE quail_id = ?1 AND deleted = 0",
     )?;
     let rows = stmt.query_map(params![quail_uuid.to_string()], |row| {
         let uuid_str: String = row.get(0)?;
@@ -225,7 +251,7 @@ pub fn list_event_photos(conn: &Connection, event_uuid: &Uuid) -> Result<Vec<Pho
 
 pub fn get_profile_photo(conn: &Connection, quail_uuid: &Uuid) -> Result<Option<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT p.uuid, p.quail_id, p.event_id, p.path, p.thumbnail_path 
+        "SELECT p.uuid, p.quail_id, p.event_id, COALESCE(p.relative_path, p.path) as rel_path, p.thumbnail_path 
          FROM photos p 
          JOIN quails q ON q.profile_photo = p.uuid 
          WHERE q.uuid = ?1",
@@ -281,7 +307,7 @@ pub fn set_profile_photo(
     }
 }
 
-pub fn delete_photo(conn: &Connection, photo_uuid: &Uuid) -> Result<(), AppError> {
+pub async fn delete_photo(conn: &Connection, photo_uuid: &Uuid) -> Result<(), AppError> {
     let rows = conn.execute(
         "DELETE FROM photos WHERE uuid = ?1",
         params![photo_uuid.to_string()],
@@ -289,5 +315,9 @@ pub fn delete_photo(conn: &Connection, photo_uuid: &Uuid) -> Result<(), AppError
     if rows == 0 {
         return Err(AppError::NotFound("Foto nicht gefunden".into()));
     }
+
+    // Capture CRDT deletion
+    crate::services::operation_capture::capture_photo_delete(conn, &photo_uuid.to_string()).await?;
+
     Ok(())
 }

@@ -191,6 +191,8 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
     // Separater bool für laufende Synchronisierung, damit Anzeige sicher zurückgesetzt wird
     let mut is_syncing = use_signal(|| false);
     let mut connection_status = use_signal(|| None::<ConnectionStatus>);
+    let mut background_sync_running =
+        use_signal(|| crate::services::background_sync::is_background_sync_running());
 
     // Load existing settings on mount
     use_effect(move || {
@@ -252,7 +254,10 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     status_message.set(format!("\u{2139}\u{fe0f} {}", t!("sync-not-configured")));
                 }
                 Err(e) => {
-                    status_message.set(format!("\u{26a0}\u{fe0f} {}: {}", t!("error-loading"), e));
+                    status_message.set(format!(
+                        "\u{26a0}\u{fe0f} {}",
+                        t!("error-loading", error: e.to_string())
+                    ));
                 }
             },
             Err(e) => {
@@ -270,7 +275,24 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
         spawn(async move {
             let url = format!("{}/index.php/login/v2", server.trim_end_matches('/'));
 
-            match reqwest::Client::new()
+            // Create a properly configured HTTP client
+            let client = match reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+            {
+                Ok(client) => client,
+                Err(e) => {
+                    login_state.set(LoginState::Error(format!(
+                        "{}: {:?}",
+                        t!("error-client"),
+                        e
+                    )));
+                    return;
+                }
+            };
+
+            match client
                 .post(&url)
                 .header("User-Agent", "Stalltagebuch/0.1.0")
                 .send()
@@ -293,9 +315,35 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
 
                                 // Start polling immediately in background
                                 spawn(async move {
+                                    // Create a properly configured HTTP client for polling
+                                    let poll_client = match reqwest::Client::builder()
+                                        .timeout(std::time::Duration::from_secs(30))
+                                        .connect_timeout(std::time::Duration::from_secs(10))
+                                        .build()
+                                    {
+                                        Ok(client) => client,
+                                        Err(e) => {
+                                            login_state.set(LoginState::Error(format!(
+                                                "{}: {:?}",
+                                                t!("error-client"),
+                                                e
+                                            )));
+                                            return;
+                                        }
+                                    };
+
+                                    // Small delay to ensure network is ready and user can open browser
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    std::thread::sleep(std::time::Duration::from_millis(500));
+                                    #[cfg(target_arch = "wasm32")]
+                                    gloo_timers::future::sleep(std::time::Duration::from_millis(
+                                        500,
+                                    ))
+                                    .await;
+
                                     // Poll up to 60 times (5 minutes, every 5 seconds)
                                     for _ in 0..60 {
-                                        match reqwest::Client::new()
+                                        match poll_client
                                             .post(&poll_url)
                                             .form(&[("token", &token)])
                                             .header("User-Agent", "Stalltagebuch/0.1.0")
@@ -569,41 +617,27 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                             onclick: move |_| {
                                 spawn(async move {
                                     is_syncing.set(true);
-                                    status_message.set(t!("sync-running").to_string());
-                                    match database::init_database() {
-                                        Ok(conn) => {
-                                            match crate::services::upload_service::sync_all(&conn).await {
-                                                Ok((quails, events, egg_records, photos)) => {
-                                                    status_message
-                                                        .set(
-                                                            format!(
-                                                                "\u{2705} {}",
-                                                                t!(
-                                                                    "sync-success", quails : quails, events : events, eggs :
-                                                                    egg_records, photos : photos
-                                                                ),
-                                                            ),
-                                                        );
-                                                    if let Ok(Some(updated)) = crate::services::sync_service::load_sync_settings(
-                                                        &conn,
-                                                    ) {
-                                                        current_settings.set(Some(updated));
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    status_message
-                                                        .set(format!("\u{274c} {}: {}", t!("sync-failed"), e));
+                                    status_message.set("🔄 Vollständige Synchronisation...".to_string());
+                                    match crate::services::background_sync::sync_now().await {
+                                        Ok(stats) => {
+                                            status_message.set(
+                                                format!(
+                                                    "✅ Sync erfolgreich: {} Wachteln, {} Events, {} Eier, {} Fotos hochgeladen, {} Operationen heruntergeladen",
+                                                    stats.quails_uploaded,
+                                                    stats.events_uploaded,
+                                                    stats.egg_records_uploaded,
+                                                    stats.photos_uploaded,
+                                                    stats.operations_downloaded,
+                                                ),
+                                            );
+                                            if let Ok(conn) = database::init_database() {
+                                                if let Ok(Some(updated)) = crate::services::sync_service::load_sync_settings(&conn) {
+                                                    current_settings.set(Some(updated));
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            status_message
-                                                .set(
-                                                    format!(
-                                                        "\u{274c} {}",
-                                                        t!("error-database", error : e.to_string()),
-                                                    ),
-                                                );
+                                            status_message.set(format!("❌ {}: {}", t!("sync-failed"), e));
                                         }
                                     }
                                     is_syncing.set(false);
@@ -617,6 +651,44 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                             onclick: delete_settings,
                             "🗑️ "
                             {t!("sync-delete-config")}
+                        }
+                    }
+
+                    // Background sync toggle
+                    div { style: "margin-top: 16px; padding: 12px; background: #f0f7ff; border-radius: 8px; border-left: 4px solid #0066cc;",
+                        div { style: "display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;",
+                            div {
+                                p { style: "margin: 0; font-weight: 600; font-size: 14px;",
+                                    "🔄 Automatische Synchronisation"
+                                }
+                                p { style: "margin: 4px 0 0 0; font-size: 12px; color: #666;",
+                                    "Synchronisiert alle 5 Minuten im Hintergrund"
+                                }
+                            }
+                            button {
+                                class: if background_sync_running() { "btn-danger" } else { "btn-primary" },
+                                onclick: move |_| {
+                                    if background_sync_running() {
+                                        crate::services::background_sync::stop_background_sync();
+                                        background_sync_running.set(false);
+                                        status_message.set("⏸️ Automatische Synchronisation gestoppt".to_string());
+                                    } else {
+                                        crate::services::background_sync::start_background_sync();
+                                        background_sync_running.set(true);
+                                        status_message.set("▶️ Automatische Synchronisation gestartet".to_string());
+                                    }
+                                },
+                                if background_sync_running() {
+                                    "⏸️ Stoppen"
+                                } else {
+                                    "▶️ Starten"
+                                }
+                            }
+                        }
+                        if background_sync_running() {
+                            p { style: "margin: 8px 0 0 0; font-size: 12px; color: #2e7d32; font-weight: 600;",
+                                "✓ Läuft im Hintergrund"
+                            }
                         }
                     }
                 }

@@ -86,58 +86,68 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                 Some(RingColor::from_str(ring_color_trimmed))
             };
 
-            match database::init_database() {
-                Ok(conn) => {
-                    match services::profile_service::update_profile(&conn, &updated_profile) {
-                        Ok(_) => {
-                            // Aktualisiere Profilbild falls ausgewählt
-                            if let Some(photo_uuid_str) = selected_profile_photo_id() {
-                                if let (Ok(quail_uuid), Ok(photo_uuid)) = (
-                                    uuid::Uuid::parse_str(&quail_id_for_submit),
-                                    uuid::Uuid::parse_str(&photo_uuid_str),
-                                ) {
-                                    let _ = crate::services::photo_service::set_profile_photo(
-                                        &conn,
-                                        &quail_uuid,
-                                        &photo_uuid,
-                                    );
+            let updated_profile_clone = updated_profile.clone();
+            let quail_id_clone = quail_id_for_submit.clone();
+            let selected_photo = selected_profile_photo_id();
+            spawn(async move {
+                match database::init_database() {
+                    Ok(conn) => {
+                        match services::profile_service::update_profile(&conn, &updated_profile_clone).await {
+                            Ok(_) => {
+                                // Aktualisiere Profilbild falls ausgewählt
+                                if let Some(photo_uuid_str) = selected_photo {
+                                    if let (Ok(quail_uuid), Ok(photo_uuid)) = (
+                                        uuid::Uuid::parse_str(&quail_id_clone),
+                                        uuid::Uuid::parse_str(&photo_uuid_str),
+                                    ) {
+                                        let _ = crate::services::photo_service::set_profile_photo(
+                                            &conn,
+                                            &quail_uuid,
+                                            &photo_uuid,
+                                        );
+                                    }
                                 }
+                                success.set(true);
+                                // Navigate back immediately
+                                on_navigate.call(Screen::ProfileDetail(quail_id_clone.clone()));
                             }
-                            success.set(true);
-                            // Navigate back immediately
-                            on_navigate.call(Screen::ProfileDetail(quail_id_for_submit.clone()));
-                        }
-                        Err(e) => {
-                            error.set(format!("{}: {}", t!("error-save-failed"), e));
-                            // Failed to save
+                            Err(e) => {
+                                error.set(format!("{}: {}", t!("error-save-failed"), e));
+                                // Failed to save
+                            }
                         }
                     }
+                    Err(e) => {
+                        error.set(format!("{}: {}", t!("error-database"), e)); // Database error
+                    }
                 }
-                Err(e) => {
-                    error.set(format!("{}: {}", t!("error-database"), e)); // Database error
-                }
-            }
+            });
         }
     };
 
     let quail_id_for_delete = quail_id.clone();
-    let mut handle_delete = move || match database::init_database() {
-        Ok(conn) => {
-            if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_for_delete) {
-                match services::profile_service::delete_profile(&conn, &uuid) {
-                    Ok(_) => {
-                        on_navigate.call(Screen::ProfileList);
-                    }
-                    Err(e) => {
-                        error.set(format!("{}: {}", t!("error-delete-failed"), e));
-                        // Failed to delete
+    let handle_delete = move || {
+        let quail_id_clone = quail_id_for_delete.clone();
+        spawn(async move {
+            match database::init_database() {
+                Ok(conn) => {
+                    if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
+                        match services::profile_service::delete_profile(&conn, &uuid).await {
+                            Ok(_) => {
+                                on_navigate.call(Screen::ProfileList);
+                            }
+                            Err(e) => {
+                                error.set(format!("{}: {}", t!("error-delete-failed"), e));
+                                // Failed to delete
+                            }
+                        }
                     }
                 }
+                Err(e) => {
+                    error.set(t!("error-database", error: e.to_string())); // Database error
+                }
             }
-        }
-        Err(e) => {
-            error.set(t!("error-database", error: e.to_string())); // Database error
-        }
+        });
     };
 
     let quail_id_for_back = quail_id.clone();
@@ -289,27 +299,34 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                                                 style: "position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; background: rgba(204, 0, 0, 0.9); color: white; border-radius: 50%; font-size: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer;",
                                                 onclick: {
                                                     let qid = quail_id_for_photo_delete.clone();
+                                                    let photo_uuid = photo.uuid;
+                                                    let photo_uuid_str = photo.uuid.to_string();
                                                     move |_| {
-                                                        if let Ok(conn) = database::init_database() {
-                                                            match crate::services::photo_service::delete_photo(&conn, &photo.uuid) {
-                                                                Ok(_) => {
-                                                                    if let Ok(q_uuid) = uuid::Uuid::parse_str(&qid) {
-                                                                        if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
-                                                                            &conn,
-                                                                            &q_uuid,
-                                                                        ) {
-                                                                            photos.set(photo_list);
-                                                                            if selected_profile_photo_id().as_ref().map(|s| s.as_str())
-                                                                                == Some(&photo.uuid.to_string())
-                                                                            {
-                                                                                selected_profile_photo_id.set(None);
+                                                        let qid_clone = qid.clone();
+                                                        let photo_uuid_clone = photo_uuid.clone();
+                                                        let photo_uuid_str_clone = photo_uuid_str.clone();
+                                                        spawn(async move {
+                                                            if let Ok(conn) = database::init_database() {
+                                                                match crate::services::photo_service::delete_photo(&conn, &photo_uuid_clone).await {
+                                                                    Ok(_) => {
+                                                                        if let Ok(q_uuid) = uuid::Uuid::parse_str(&qid_clone) {
+                                                                            if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
+                                                                                &conn,
+                                                                                &q_uuid,
+                                                                            ) {
+                                                                                photos.set(photo_list);
+                                                                                if selected_profile_photo_id().as_ref().map(|s| s.as_str())
+                                                                                    == Some(&photo_uuid_str_clone)
+                                                                                {
+                                                                                    selected_profile_photo_id.set(None);
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
+                                                                    Err(e) => error.set(format!("{}: {}", t!("error-delete-failed"), e)),
                                                                 }
-                                                                Err(e) => error.set(format!("{}: {}", t!("error-delete-failed"), e)),
                                                             }
-                                                        }
+                                                        });
                                                     }
                                                 },
                                                 "×"

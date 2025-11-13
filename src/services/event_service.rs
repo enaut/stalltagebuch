@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
 /// Creates a new event for a quail
-pub fn create_event(
+pub async fn create_event(
     conn: &Connection,
     quail_id: Uuid,
     event_type: EventType,
@@ -13,7 +13,7 @@ pub fn create_event(
     notes: Option<String>,
 ) -> Result<Uuid, AppError> {
     let mut event = QuailEvent::new(quail_id, event_type, event_date);
-    event.notes = notes;
+    event.notes = notes.clone();
 
     event.validate()?;
 
@@ -28,6 +28,16 @@ pub fn create_event(
             event.notes,
         ],
     )?;
+
+    // Capture CRDT operation
+    crate::services::operation_capture::capture_event_create(
+        conn,
+        &event.uuid.to_string(),
+        &event.quail_id.to_string(),
+        event.event_type.as_str(),
+        &event.event_date.to_string(),
+        notes.as_deref(),
+    ).await?;
 
     Ok(event.uuid)
 }
@@ -116,7 +126,7 @@ pub fn update_event(
 }
 
 /// Deletes an event
-pub fn delete_event(conn: &Connection, event_uuid: &Uuid) -> Result<(), AppError> {
+pub async fn delete_event(conn: &Connection, event_uuid: &Uuid) -> Result<(), AppError> {
     let mut stmt = conn.prepare("SELECT quail_id, event_type FROM quail_events WHERE uuid = ?1")?;
     let (_quail_id, _event_type_str): (String, String) = stmt
         .query_row(params![event_uuid.to_string()], |row| {
@@ -126,6 +136,10 @@ pub fn delete_event(conn: &Connection, event_uuid: &Uuid) -> Result<(), AppError
         "DELETE FROM quail_events WHERE uuid = ?1",
         params![event_uuid.to_string()],
     )?;
+
+    // Capture CRDT deletion
+    crate::services::operation_capture::capture_event_delete(conn, &event_uuid.to_string()).await?;
+
     Ok(())
 }
 
@@ -146,7 +160,7 @@ pub fn get_event_by_id(
 }
 
 /// Full update of an event (type, date, notes)
-pub fn update_event_full(
+pub async fn update_event_full(
     conn: &Connection,
     event_uuid: &Uuid,
     event_type: EventType,
@@ -168,9 +182,33 @@ pub fn update_event_full(
         params![
             event_type.as_str(),
             event_date.to_string(),
-            notes,
+            &notes,
             event_uuid.to_string()
         ],
     )?;
+
+    // Capture CRDT operations
+    let event_id = event_uuid.to_string();
+    crate::services::operation_capture::capture_event_update(
+        conn,
+        &event_id,
+        "event_type",
+        serde_json::Value::String(event_type.as_str().to_string()),
+    ).await?;
+    crate::services::operation_capture::capture_event_update(
+        conn,
+        &event_id,
+        "event_date",
+        serde_json::Value::String(event_date.to_string()),
+    ).await?;
+    if let Some(notes_text) = notes {
+        crate::services::operation_capture::capture_event_update(
+            conn,
+            &event_id,
+            "notes",
+            serde_json::Value::String(notes_text),
+        ).await?;
+    }
+
     Ok(())
 }

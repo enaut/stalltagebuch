@@ -3,7 +3,6 @@ use crate::image_processing;
 use crate::models::{Quail, RingColor};
 use crate::services;
 use crate::Screen;
-use dioxus::html::object::data;
 use dioxus::prelude::*;
 use dioxus_i18n::t;
 

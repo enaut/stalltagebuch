@@ -44,47 +44,49 @@ pub fn AddProfileScreen(on_navigate: EventHandler<Screen>) -> Element {
             Some(RingColor::from_str(ring_color_trimmed))
         };
 
-        match database::init_database() {
-            Ok(conn) => {
-                match services::create_profile(&conn, &quail) {
-                    Ok(quail_id) => {
-                        // Speichere Profilfoto falls vorhanden
-                        if let Some(path) = photo_path() {
-                            let path_str = path.to_string_lossy().to_string();
-                            let thumbnail_opt =
-                                crate::image_processing::create_thumbnail(&path_str).ok();
-                            match crate::services::photo_service::add_quail_photo(
-                                &conn,
-                                quail_id,
-                                path_str,
-                                thumbnail_opt,
-                            ) {
-                                Ok(photo_uuid) => {
-                                    // Setze dieses Foto als Profilbild
-                                    let _ = crate::services::photo_service::set_profile_photo(
-                                        &conn,
-                                        &quail_id,
-                                        &photo_uuid,
-                                    );
-                                }
-                                Err(e) => {
-                                    eprintln!("Fehler beim Hinzufügen des Profilfotos: {}", e);
+        spawn(async move {
+            match database::init_database() {
+                Ok(conn) => {
+                    match services::create_profile(&conn, &quail).await {
+                        Ok(quail_id) => {
+                            // Speichere Profilfoto falls vorhanden
+                            if let Some(path) = photo_path() {
+                                let path_str = path.to_string_lossy().to_string();
+                                let thumbnail_opt =
+                                    crate::image_processing::create_thumbnail(&path_str).ok();
+                                match crate::services::photo_service::add_quail_photo(
+                                    &conn,
+                                    quail_id,
+                                    path_str,
+                                    thumbnail_opt,
+                                ).await {
+                                    Ok(photo_uuid) => {
+                                        // Setze dieses Foto als Profilbild
+                                        let _ = crate::services::photo_service::set_profile_photo(
+                                            &conn,
+                                            &quail_id,
+                                            &photo_uuid,
+                                        );
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Fehler beim Hinzufügen des Profilfotos: {}", e);
+                                    }
                                 }
                             }
+                            success.set(true);
+                            on_navigate.call(Screen::ProfileList);
                         }
-                        success.set(true);
-                        on_navigate.call(Screen::ProfileList);
-                    }
-                    Err(e) => {
-                        error.set(Some(format!("{}: {}", t!("error-save"), e)));
-                        // Save error
+                        Err(e) => {
+                            error.set(Some(format!("{}: {}", t!("error-save"), e)));
+                            // Save error
+                        }
                     }
                 }
+                Err(e) => {
+                    error.set(Some(t!("error-database", error: e.to_string()))); // Database error
+                }
             }
-            Err(e) => {
-                error.set(Some(t!("error-database", error: e.to_string()))); // Database error
-            }
-        }
+        });
     };
 
     rsx! {

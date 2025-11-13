@@ -7,10 +7,25 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 
-/// Unique device ID (should be generated and stored on first start)
-fn get_device_id() -> String {
-    // TODO: Should be generated once and stored in settings
-    uuid::Uuid::new_v4().to_string()
+/// Unique device ID (loaded from sync_settings or generated once)
+pub fn get_device_id(conn: &Connection) -> Result<String, AppError> {
+    use crate::services::sync_service;
+    
+    let settings = sync_service::load_sync_settings(conn)?;
+    
+    if let Some(mut settings) = settings {
+        if let Some(device_id) = settings.device_id {
+            return Ok(device_id);
+        }
+        // Generate and store new device_id
+        let new_id = uuid::Uuid::new_v4().to_string();
+        settings.device_id = Some(new_id.clone());
+        sync_service::save_sync_settings(conn, &settings)?;
+        Ok(new_id)
+    } else {
+        // No settings yet, return temporary ID
+        Ok(uuid::Uuid::new_v4().to_string())
+    }
 }
 
 /// Calculates SHA256 hash of a file
@@ -61,7 +76,7 @@ pub fn create_photo_metadata(
     file_path: &Path,
 ) -> Result<PhotoMetadata, AppError> {
     let checksum = calculate_checksum(file_path)?;
-    let device_id = get_device_id();
+    let device_id = get_device_id(conn)?;
     let relative_path = get_relative_photo_path(conn, photo)?;
 
     // Get quail UUID and event UUID if available
@@ -95,8 +110,8 @@ pub fn create_photo_metadata(
 }
 
 /// Creates TOML metadata for a quail
-pub fn create_quail_metadata(_conn: &Connection, quail: &Quail) -> Result<QuailMetadata, AppError> {
-    let device_id = get_device_id();
+pub fn create_quail_metadata(conn: &Connection, quail: &Quail) -> Result<QuailMetadata, AppError> {
+    let device_id = get_device_id(conn)?;
 
     Ok(QuailMetadata {
         uuid: quail.uuid.to_string(),
@@ -112,10 +127,10 @@ pub fn create_quail_metadata(_conn: &Connection, quail: &Quail) -> Result<QuailM
 
 /// Creates TOML metadata for an event
 pub fn create_event_metadata(
-    _conn: &Connection,
+    conn: &Connection,
     event: &QuailEvent,
 ) -> Result<EventMetadata, AppError> {
-    let device_id = get_device_id();
+    let device_id = get_device_id(conn)?;
 
     let quail_uuid = event.quail_id.to_string();
 
@@ -133,7 +148,7 @@ pub fn create_event_metadata(
 /// Lists all photos that have not been synchronized yet
 pub fn list_pending_photos(conn: &Connection) -> Result<Vec<Photo>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT p.uuid, p.quail_id, p.event_id, p.path, p.thumbnail_path
+        "SELECT p.uuid, p.quail_id, p.event_id, COALESCE(p.relative_path, p.path) as rel_path, p.thumbnail_path
          FROM photos p
          LEFT JOIN sync_queue sq ON p.uuid = sq.photo_id
          WHERE sq.photo_id IS NULL OR sq.status IN ('pending', 'failed')",
@@ -659,11 +674,12 @@ pub async fn sync_all_photos(conn: &Connection) -> Result<usize, AppError> {
 
 /// Creates TOML metadata for an egg record
 pub fn create_egg_record_metadata(
+    conn: &Connection,
     egg_record: &crate::models::EggRecord,
     created_at: String,
     updated_at: String,
 ) -> Result<crate::models::EggRecordMetadata, AppError> {
-    let device_id = get_device_id();
+    let device_id = get_device_id(conn)?;
 
     Ok(crate::models::EggRecordMetadata {
         uuid: egg_record.uuid.to_string(),
@@ -678,7 +694,7 @@ pub fn create_egg_record_metadata(
 
 /// Synchronizes an egg record
 pub async fn sync_egg_record(
-    _conn: &Connection,
+    conn: &Connection,
     egg_record: &crate::models::EggRecord,
     created_at: String,
     updated_at: String,
@@ -703,7 +719,7 @@ pub async fn sync_egg_record(
         .map_err(|e| AppError::Other(format!("WebDAV Client Fehler: {:?}", e)))?;
 
     // Erstelle Metadata
-    let metadata = create_egg_record_metadata(egg_record, created_at, updated_at)?;
+    let metadata = create_egg_record_metadata(conn, egg_record, created_at, updated_at)?;
     let metadata_toml = metadata
         .to_toml()
         .map_err(|e| AppError::Other(format!("TOML Serialisierung fehlgeschlagen: {}", e)))?;
@@ -841,4 +857,84 @@ pub async fn sync_all(conn: &Connection) -> Result<(usize, usize, usize, usize),
         egg_records_synced,
         photos_synced,
     ))
+}
+
+/// Uploads a batch of operations to sync/ops/<device>/<YYYYMM>/<ULID>.ndjson
+/// 
+/// This is a minimal skeleton for the new multi-master sync.
+pub async fn upload_ops_batch(
+    conn: &Connection,
+    ops: Vec<crate::services::crdt_service::Operation>,
+) -> Result<(), AppError> {
+    use crate::services::{sync_paths, sync_service};
+    
+    if ops.is_empty() {
+        return Ok(());
+    }
+    
+    let settings = sync_service::load_sync_settings(conn)?
+        .ok_or_else(|| AppError::NotFound("Sync settings not configured".to_string()))?;
+    
+    if !settings.enabled {
+        return Err(AppError::Validation("Sync disabled".to_string()));
+    }
+    
+    let device_id = get_device_id(conn)?;
+    let year_month = sync_paths::current_year_month();
+    let ulid = ulid::Ulid::new().to_string();
+    
+    // Build NDJSON content
+    let mut ndjson_lines = Vec::new();
+    for op in &ops {
+        let line = serde_json::to_string(op)
+            .map_err(|e| AppError::Other(format!("JSON serialize failed: {}", e)))?;
+        ndjson_lines.push(line);
+    }
+    let ndjson_content = ndjson_lines.join("\n") + "\n";
+    
+    // Build remote path
+    let ops_dir = sync_paths::ops_path(&device_id, &year_month);
+    let filename = format!("{}.ndjson", ulid);
+    let full_path = format!("{}/{}/{}", settings.remote_path.trim_end_matches('/'), ops_dir, filename);
+    
+    // Create WebDAV client
+    let webdav_url = format!(
+        "{}/remote.php/dav/files/{}",
+        settings.server_url.trim_end_matches('/'),
+        settings.username
+    );
+    
+    let client = reqwest_dav::ClientBuilder::new()
+        .set_host(webdav_url)
+        .set_auth(reqwest_dav::Auth::Basic(
+            settings.username.clone(),
+            settings.app_password.clone(),
+        ))
+        .build()
+        .map_err(|e| AppError::Other(format!("WebDAV client error: {:?}", e)))?;
+    
+    // Create directories if needed (WebDAV cannot create nested collections in one call)
+    let base = settings.remote_path.trim_end_matches('/');
+    let sync_base = format!("{}/sync", base);
+    let ops_base = format!("{}/ops", sync_base);
+    let device_base = format!("{}/{}", ops_base, device_id);
+    let month_base = format!("{}/{}", device_base, year_month);
+
+    // Try to create each level; ignore errors like 405 Method Not Allowed or 409 Conflict
+    for path in [&sync_base, &ops_base, &device_base, &month_base] {
+        if let Err(e) = client.mkcol(path).await {
+            // Best-effort: path may already exist; only log
+            eprintln!("MKCOL '{}' note: {:?}", path, e);
+        }
+    }
+    
+    // Upload (atomic create via If-None-Match not directly supported, use put)
+    client
+        .put(&full_path, ndjson_content.into_bytes())
+        .await
+        .map_err(|e| AppError::Other(format!("Upload ops batch failed: {:?}", e)))?;
+    
+    eprintln!("Uploaded ops batch: {} operations to {}", ops.len(), full_path);
+    
+    Ok(())
 }

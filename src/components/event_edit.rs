@@ -28,6 +28,11 @@ pub fn EventEditScreen(
     let mut success = use_signal(|| false);
     let mut uploading = use_signal(|| false);
 
+    #[cfg(target_os = "android")]
+    let event_id_for_gallery = event_id.clone();
+    #[cfg(target_os = "android")]
+    let event_id_for_camera = event_id.clone();
+
     // Load event + photos
     let event_id_for_load = event_id.clone();
     use_effect(move || {
@@ -66,43 +71,53 @@ pub fn EventEditScreen(
                 return;
             }
         };
-        if let Ok(conn) = database::init_database() {
-            if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_for_save) {
-                match event_service::update_event_full(
-                    &conn,
-                    &e_uuid,
-                    event_type(),
-                    parsed_date,
-                    if notes().is_empty() {
-                        None
-                    } else {
-                        Some(notes())
-                    },
-                ) {
-                    Ok(_) => {
-                        success.set(true);
-                        on_navigate.call(Screen::ProfileDetail(quail_id_for_save.clone()));
-                    }
-                    Err(e) => error.set(t!("error-save", error: e.to_string())),
-                }
-            }
+        let event_id_clone = event_id_for_save.clone();
+        let quail_id_clone = quail_id_for_save.clone();
+        let event_type_val = event_type();
+        let notes_val = if notes().is_empty() {
+            None
         } else {
-            error.set(t!("error-db-unavailable"));
-        }
+            Some(notes())
+        };
+        spawn(async move {
+            if let Ok(conn) = database::init_database() {
+                if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
+                    match event_service::update_event_full(
+                        &conn,
+                        &e_uuid,
+                        event_type_val,
+                        parsed_date,
+                        notes_val,
+                    ).await {
+                        Ok(_) => {
+                            success.set(true);
+                            on_navigate.call(Screen::ProfileDetail(quail_id_clone.clone()));
+                        }
+                        Err(e) => error.set(t!("error-save", error: e.to_string())),
+                    }
+                }
+            } else {
+                error.set(t!("error-db-unavailable"));
+            }
+        });
     };
 
     // Delete handler
     let event_id_for_delete = event_id.clone();
     let quail_id_for_delete = quail_id.clone();
-    let mut handle_delete = move || {
-        if let Ok(conn) = database::init_database() {
-            if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_for_delete) {
-                match event_service::delete_event(&conn, &e_uuid) {
-                    Ok(_) => on_navigate.call(Screen::ProfileDetail(quail_id_for_delete.clone())),
-                    Err(e) => error.set(t!("error-delete", error: e.to_string())),
+    let handle_delete = move || {
+        let event_id_clone = event_id_for_delete.clone();
+        let quail_id_clone = quail_id_for_delete.clone();
+        spawn(async move {
+            if let Ok(conn) = database::init_database() {
+                if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
+                    match event_service::delete_event(&conn, &e_uuid).await {
+                        Ok(_) => on_navigate.call(Screen::ProfileDetail(quail_id_clone.clone())),
+                        Err(e) => error.set(t!("error-delete", error: e.to_string())),
+                    }
                 }
             }
-        }
+        });
     };
 
     rsx! {
@@ -204,17 +219,22 @@ pub fn EventEditScreen(
                                                 style: "position:absolute; top:4px; right:4px; width:28px; height:28px; background:rgba(204,0,0,0.85); color:white; border-radius:50%; font-size:14px; cursor:pointer;",
                                                 onclick: {
                                                     let event_id_for_photo_delete = event_id.clone();
+                                                    let photo_uuid = photo.uuid;
                                                     move |_| {
-                                                        if let Ok(conn) = database::init_database() {
-                                                            let _ = photo_service::delete_photo(&conn, &photo.uuid);
-                                                            if let Ok(e_uuid) = uuid::Uuid::parse_str(
-                                                                &event_id_for_photo_delete.clone(),
-                                                            ) {
-                                                                if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
-                                                                    photos.set(list);
+                                                        let event_id_clone = event_id_for_photo_delete.clone();
+                                                        let photo_uuid_clone = photo_uuid.clone();
+                                                        spawn(async move {
+                                                            if let Ok(conn) = database::init_database() {
+                                                                let _ = photo_service::delete_photo(&conn, &photo_uuid_clone).await;
+                                                                if let Ok(e_uuid) = uuid::Uuid::parse_str(
+                                                                    &event_id_clone,
+                                                                ) {
+                                                                    if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
+                                                                        photos.set(list);
+                                                                    }
                                                                 }
                                                             }
-                                                        }
+                                                        });
                                                     }
                                                 },
                                                 "×"
@@ -231,11 +251,11 @@ pub fn EventEditScreen(
                             disabled: uploading(),
                             style: "flex:1; padding:10px; background:rgba(0,0,0,0.6); color:white; border-radius:8px;",
                             onclick: {
-                                let event_id_for_gallery = event_id.clone();
                                 move |_| {
-                                    let event_id_clone = event_id_for_gallery.clone();
                                     uploading.set(true);
                                     error.set(String::new());
+                                    #[cfg(target_os = "android")]
+                                    let event_id_clone = event_id_for_gallery.clone();
                                     spawn(async move {
                                         #[cfg(target_os = "android")]
                                         {
@@ -251,7 +271,7 @@ pub fn EventEditScreen(
                                                                     e_uuid,
                                                                     ps,
                                                                     th,
-                                                                );
+                                                                ).await;
                                                             }
                                                             if let Ok(list) = photo_service::list_event_photos(
                                                                 &conn,
@@ -286,11 +306,11 @@ pub fn EventEditScreen(
                             disabled: uploading(),
                             style: "flex:1; padding:10px; background:rgba(0,0,0,0.6); color:white; border-radius:8px;",
                             onclick: {
-                                let event_id_for_camera = event_id.clone();
                                 move |_| {
-                                    let event_id_clone = event_id_for_camera.clone();
                                     uploading.set(true);
                                     error.set(String::new());
+                                    #[cfg(target_os = "android")]
+                                    let event_id_clone = event_id_for_camera.clone();
                                     spawn(async move {
                                         #[cfg(target_os = "android")]
                                         {
@@ -305,7 +325,7 @@ pub fn EventEditScreen(
                                                                 e_uuid,
                                                                 ps,
                                                                 th,
-                                                            );
+                                                            ).await;
                                                             if let Ok(list) = photo_service::list_event_photos(
                                                                 &conn,
                                                                 &e_uuid,

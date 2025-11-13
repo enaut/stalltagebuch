@@ -17,6 +17,11 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
     let mut uploading = use_signal(|| false);
     let mut upload_error = use_signal(|| String::new());
 
+    #[cfg(target_os = "android")]
+    let quail_id_for_gallery = quail_id.clone();
+    #[cfg(target_os = "android")]
+    let quail_id_for_camera = quail_id.clone();
+
     // Alle Bilder der Wachtel laden
     let quail_id_for_photos = quail_id.clone();
     use_effect(move || {
@@ -152,12 +157,12 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                             style: "position:absolute; bottom:12px; left:12px; padding:10px 14px; background:rgba(0,0,0,0.45); color:white; backdrop-filter:blur(4px); border-radius:8px; font-size:14px; display:flex; align-items:center; gap:6px; cursor:pointer; z-index:11;",
                             disabled: uploading(),
                             onclick: {
-                                let quail_id_for_gallery = quail_id.clone();
                                 move |e| {
                                     e.stop_propagation();
-                                    let quail_id_clone = quail_id_for_gallery.clone();
                                     uploading.set(true);
                                     upload_error.set(String::new());
+                                    #[cfg(target_os = "android")]
+                                    let quail_id_clone = quail_id_for_gallery.clone();
                                 spawn(async move {
                                     #[cfg(target_os = "android")]
                                     {
@@ -178,7 +183,7 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                                                 uuid,
                                                                 path_str,
                                                                 thumbnail_opt,
-                                                            ) {
+                                                            ).await {
                                                                 Ok(_) => {}
                                                                 Err(e) => {
                                                                     upload_error.set(format!("Fehler beim Speichern: {}", e));
@@ -224,12 +229,12 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                             style: "position:absolute; bottom:12px; right:12px; padding:10px 14px; background:rgba(0,0,0,0.45); color:white; backdrop-filter:blur(4px); border-radius:8px; font-size:14px; display:flex; align-items:center; gap:6px; cursor:pointer; z-index:11;",
                             disabled: uploading(),
                             onclick: {
-                                let quail_id_for_camera = quail_id.clone();
                                 move |e| {
                                     e.stop_propagation();
-                                    let quail_id_clone = quail_id_for_camera.clone();
                                     uploading.set(true);
                                     upload_error.set(String::new());
+                                    #[cfg(target_os = "android")]
+                                    let quail_id_clone = quail_id_for_camera.clone();
                                     spawn(async move {
                                     #[cfg(target_os = "android")]
                                     {
@@ -247,7 +252,7 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                                             uuid,
                                                             path_str,
                                                             thumbnail_opt,
-                                                        ) {
+                                                        ).await {
                                                             Ok(_) => {
                                                                 if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
                                                                     &conn,

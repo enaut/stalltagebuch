@@ -21,6 +21,9 @@ reqwest_dav = "0.2"
 base64 = "0.22"
 toml = "0.9"
 sha2 = "0.10"
+ulid = "1.1"
+tokio = { version = "1.0", features = ["rt", "time"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 ndk-context = "0.1"

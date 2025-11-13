@@ -152,3 +152,49 @@ adb logcat | grep -i stalltagebuch
 - **Dioxus Docs:** https://dioxuslabs.com/learn/0.7
 - **Android Developer:** https://developer.android.com/
 - **JNI Guide:** https://docs.rs/jni/latest/jni/
+
+---
+
+## Experimental Sync Integration Plan (Nextcloud/WebDAV)
+
+Ziel: Multi‑Master, Offline‑First Sync ohne Konflikte. Umsetzung stufenweise hinter Feature‑Flag `experimental_sync`.
+
+### Code‑Integrationspunkte
+- Services
+  - `src/services/sync_service.rs`: Pull (PROPFIND/GET), Manifestpflege (ETag), Replay‑Pipeline, Snapshot‑Nutzung
+  - `src/services/upload_service.rs`: Batch‑Upload neuer NDJSON‑Dateien, atomar via `If-None-Match: *`
+  - Neu: `src/services/crdt_service.rs` (geplant): HLC, Feld‑CRDTs (LWW/OR‑Set/PN‑Counter), Merge API
+- Datenbank/Schema
+  - `src/database/schema.rs`: additive Spalten `rev INTEGER`, `logical_clock INTEGER`, `deleted INTEGER` je Entität; Tabellen `op_log`, `device_state`, `sync_checkpoint`
+  - Migrations sind additive und rückwärtskompatibel; keine Legacy‑Änderungen entfernen
+- Modelle
+  - `src/models/*.rs`: stabile `id` (ULID/UUIDv7), `deleted: bool`, optionale `rev`/`logical_clock`
+- UI/Komponenten
+  - `src/components/settings.rs`: Schalter „Experimental Sync“, Anzeige Device‑ID, letzter Merge/Snapshot
+  - Neu: `src/components/sync_diagnostics.rs` (geplant): ausstehende Ops, letzte Fehler, Rebuild/Resync Aktionen
+- i18n
+  - `locales/de-DE.ftl`, `locales/en-US.ftl`: Schlüssel wie `sync-experimental`, `sync-device-id`, `sync-resync`, `sync-diagnostics`, `sync-migration-running`
+
+### Stufenweiser Rollout
+1. Vorbereitung
+    - Feature‑Flag `experimental_sync` (default OFF)
+    - Device‑ID generieren und persistent speichern
+2. Shadow Logging
+    - Lokale Operationen zusätzlich als NDJSON batchen; Legacy‑Upload unverändert
+3. Dry‑Run Pull/Merge
+    - Remote ops/ lesen, Merge simulieren, nur Diagnose anzeigen
+4. Aktives Pull→Apply
+    - Merge anwenden, lokale DB aktualisieren; Push weiterhin Legacy
+5. Aktiver Push
+    - NDJSON‑Batches hochladen; `snapshots/` erzeugen; `latest.json` mit `If-Match` aktualisieren
+6. GA & Sunset
+    - Standard ON; Legacy‑Pfad später entfernen, wenn Metriken stabil
+
+### Risiken & Mitigation
+- Große Verzeichnisse: Segmentierung nach Monat (`YYYYMM`), Manifeste cachen
+- ETag‑Unstetigkeit: Sekundäre Prüfung via Größe/Zeitstempel; vollständiger Re‑Scan als Fallback
+- Zeitdrift: HLC nutzt logischen Counter; Tiebreak per `device_id`
+- Manuelle Servereingriffe: Validierung, Quarantäne‑Pfad, Diagnosemeldungen
+- Rollback: Flag OFF → Legacy‑Sync aktiv, Logs/Snapshots werden ignoriert
+
+Siehe Details in `SYNC_FORMAT.md` (Abschnitt „Experimental Multi‑Master Sync“).

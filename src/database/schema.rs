@@ -23,27 +23,36 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         )
         .unwrap_or(0);
 
-    if current_version < 1 {
+    if current_version < 2 {
         create_schema(conn)?;
-        conn.execute("INSERT INTO schema_version (version) VALUES (1)", [])?;
+        conn.execute("INSERT INTO schema_version (version) VALUES (2)", [])?;
+    }
+
+    // Migration to version 3: Add relative_path column
+    if current_version < 3 {
+        migrate_to_v3(conn)?;
+        conn.execute("INSERT INTO schema_version (version) VALUES (3)", [])?;
     }
 
     Ok(())
 }
 
-/// Create the complete schema (version 1) - clean slate with English naming
+/// Create the complete schema (version 2) - multi-master sync ready (CRDT fields)
 fn create_schema(conn: &Connection) -> Result<()> {
-    // Table: photos (Photo storage with optional linking to quails OR events)
-    // Created first since quails will reference it
+    // Table: photos (now with rev/logical_clock/deleted fields for CRDT sync)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS photos (
             uuid TEXT PRIMARY KEY,
             quail_id TEXT,
             event_id TEXT,
             path TEXT NOT NULL,
+            relative_path TEXT,
             thumbnail_path TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            rev INTEGER NOT NULL DEFAULT 0,
+            logical_clock INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1)),
             CHECK( (quail_id IS NOT NULL AND event_id IS NOT NULL) OR (quail_id IS NULL OR event_id IS NULL) )
         )",
         [],
@@ -79,6 +88,9 @@ fn create_schema(conn: &Connection) -> Result<()> {
             profile_photo TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            rev INTEGER NOT NULL DEFAULT 0,
+            logical_clock INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1)),
             FOREIGN KEY (profile_photo) REFERENCES photos(uuid) ON DELETE SET NULL
         )",
         [],
@@ -110,6 +122,9 @@ fn create_schema(conn: &Connection) -> Result<()> {
             notes TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            rev INTEGER NOT NULL DEFAULT 0,
+            logical_clock INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1)),
             FOREIGN KEY (quail_id) REFERENCES quails(uuid) ON DELETE CASCADE
         )",
         [],
@@ -170,7 +185,10 @@ fn create_schema(conn: &Connection) -> Result<()> {
             total_eggs INTEGER NOT NULL DEFAULT 0 CHECK(total_eggs >= 0),
             notes TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            rev INTEGER NOT NULL DEFAULT 0,
+            logical_clock INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1))
         )",
         [],
     )?;
@@ -201,6 +219,8 @@ fn create_schema(conn: &Connection) -> Result<()> {
             remote_path TEXT NOT NULL DEFAULT '/Stalltagebuch',
             enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
             last_sync TEXT,
+            device_id TEXT,
+            format_version INTEGER NOT NULL DEFAULT 2,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )",
@@ -232,6 +252,53 @@ fn create_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Operation Log for CRDT operations
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS op_log (
+            op_id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            logical_counter INTEGER NOT NULL,
+            device_id TEXT NOT NULL,
+            op_kind TEXT NOT NULL, -- upsert | delete | inc
+            payload TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_op_log_entity ON op_log(entity_id, ts)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_op_log_device ON op_log(device_id, ts)",
+        [],
+    )?;
+
+    // Sync checkpoint (tracks last applied clock/snapshot)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_checkpoint (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            last_ts INTEGER NOT NULL DEFAULT 0,
+            last_logical_counter INTEGER NOT NULL DEFAULT 0,
+            last_device_id TEXT,
+            snapshot_rev INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Device state (stable device identifier)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS device_state (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            device_id TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
     // Indexes for sync_queue
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status)",
@@ -251,6 +318,32 @@ fn create_schema(conn: &Connection) -> Result<()> {
          END",
         [],
     )?;
+
+    Ok(())
+}
+
+/// Migration to version 3: Add relative_path column to photos
+fn migrate_to_v3(conn: &Connection) -> Result<()> {
+    // Check if column already exists
+    let has_column: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('photos') WHERE name='relative_path'",
+            [],
+            |row| row.get::<_, i32>(0).map(|c| c > 0),
+        )
+        .unwrap_or(false);
+
+    if !has_column {
+        eprintln!("Migrating to schema version 3: adding relative_path column");
+        conn.execute("ALTER TABLE photos ADD COLUMN relative_path TEXT", [])?;
+
+        // Migrate existing data: copy path to relative_path for existing photos
+        conn.execute(
+            "UPDATE photos SET relative_path = path WHERE relative_path IS NULL",
+            [],
+        )?;
+        eprintln!("Migration to v3 complete");
+    }
 
     Ok(())
 }

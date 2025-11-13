@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 /// Creates a new quail profile in the database
-pub fn create_profile(conn: &Connection, quail: &Quail) -> Result<Uuid, AppError> {
+pub async fn create_profile(conn: &Connection, quail: &Quail) -> Result<Uuid, AppError> {
     // Validation
     quail.validate()?;
 
@@ -19,6 +19,16 @@ pub fn create_profile(conn: &Connection, quail: &Quail) -> Result<Uuid, AppError
             quail.profile_photo.as_ref().map(|u| u.to_string()),
         ),
     )?;
+
+    // Capture CRDT operation
+    crate::services::operation_capture::capture_quail_create(
+        conn,
+        &quail.uuid.to_string(),
+        &quail.name,
+        quail.gender.as_str(),
+        quail.ring_color.as_ref().map(|c| c.as_str()),
+        quail.profile_photo.as_ref().map(|u| u.to_string()).as_deref(),
+    ).await?;
 
     Ok(quail.uuid)
 }
@@ -41,7 +51,7 @@ pub fn get_profile(conn: &Connection, uuid: &Uuid) -> Result<Quail, AppError> {
 }
 
 /// Updates an existing quail profile
-pub fn update_profile(conn: &Connection, quail: &Quail) -> Result<(), AppError> {
+pub async fn update_profile(conn: &Connection, quail: &Quail) -> Result<(), AppError> {
     // Validation
     quail.validate()?;
 
@@ -62,16 +72,50 @@ pub fn update_profile(conn: &Connection, quail: &Quail) -> Result<(), AppError> 
         return Err(AppError::NotFound("Quail profile".to_string()));
     }
 
+    // Capture CRDT operations for each field
+    let quail_id = quail.uuid.to_string();
+    crate::services::operation_capture::capture_quail_update(
+        conn,
+        &quail_id,
+        "name",
+        serde_json::Value::String(quail.name.clone()),
+    ).await?;
+    crate::services::operation_capture::capture_quail_update(
+        conn,
+        &quail_id,
+        "gender",
+        serde_json::Value::String(quail.gender.as_str().to_string()),
+    ).await?;
+    if let Some(color) = &quail.ring_color {
+        crate::services::operation_capture::capture_quail_update(
+            conn,
+            &quail_id,
+            "ring_color",
+            serde_json::Value::String(color.as_str().to_string()),
+        ).await?;
+    }
+    if let Some(photo) = &quail.profile_photo {
+        crate::services::operation_capture::capture_quail_update(
+            conn,
+            &quail_id,
+            "profile_photo",
+            serde_json::Value::String(photo.to_string()),
+        ).await?;
+    }
+
     Ok(())
 }
 
 /// Deletes a quail profile (CASCADE also deletes individual egg entries)
-pub fn delete_profile(conn: &Connection, uuid: &Uuid) -> Result<(), AppError> {
+pub async fn delete_profile(conn: &Connection, uuid: &Uuid) -> Result<(), AppError> {
     let rows_affected = conn.execute("DELETE FROM quails WHERE uuid = ?1", [uuid.to_string()])?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound("Quail profile".to_string()));
     }
+
+    // Capture CRDT deletion
+    crate::services::operation_capture::capture_quail_delete(conn, &uuid.to_string()).await?;
 
     Ok(())
 }

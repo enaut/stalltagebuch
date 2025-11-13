@@ -90,46 +90,50 @@ pub fn EggTrackingScreen(date: Option<String>, on_navigate: EventHandler<Screen>
         };
 
         // Save to database
-        match database::init_database() {
-            Ok(conn) => {
-                let result = if eggs_count == 0 {
-                    // Delete record if eggs count is 0
-                    if existing_record().is_some() {
-                        services::delete_egg_record(&conn, &date_trimmed)
+        let date_trimmed_clone = date_trimmed.to_string();
+        let existing = existing_record();
+        spawn(async move {
+            match database::init_database() {
+                Ok(conn) => {
+                    let result = if eggs_count == 0 {
+                        // Delete record if eggs count is 0
+                        if existing.is_some() {
+                            services::delete_egg_record(&conn, &date_trimmed_clone).await
+                        } else {
+                            // Nothing to delete
+                            Ok(())
+                        }
+                    } else if existing.is_some() {
+                        // Update existing record
+                        let mut record = existing.unwrap();
+                        record.total_eggs = eggs_count;
+                        record.notes = notes_opt;
+                        services::update_egg_record(&conn, &record).await
                     } else {
-                        // Nothing to delete
-                        Ok(())
-                    }
-                } else if existing_record().is_some() {
-                    // Update existing record
-                    let mut record = existing_record().unwrap();
-                    record.total_eggs = eggs_count;
-                    record.notes = notes_opt;
-                    services::update_egg_record(&conn, &record)
-                } else {
-                    // Create new record
-                    let record = EggRecord::new(record_date, eggs_count);
-                    let mut record = record;
-                    record.notes = notes_opt;
-                    services::add_egg_record(&conn, &record).map(|_| ())
-                };
+                        // Create new record
+                        let record = EggRecord::new(record_date, eggs_count);
+                        let mut record = record;
+                        record.notes = notes_opt;
+                        services::add_egg_record(&conn, &record).await.map(|_| ())
+                    };
 
-                match result {
-                    Ok(_) => {
-                        success.set(true);
-                        load_record(); // Reload to update existing_record state
-                                       // Nach erfolgreichem Speichern zur Historie zurückkehren
-                        on_navigate.call(Screen::EggHistory);
-                    }
-                    Err(e) => {
-                        error.set(Some(t!("error-save", error: e.to_string())));
+                    match result {
+                        Ok(_) => {
+                            success.set(true);
+                            load_record(); // Reload to update existing_record state
+                                           // Nach erfolgreichem Speichern zur Historie zurückkehren
+                            on_navigate.call(Screen::EggHistory);
+                        }
+                        Err(e) => {
+                            error.set(Some(t!("error-save", error: e.to_string())));
+                        }
                     }
                 }
+                Err(e) => {
+                    error.set(Some(t!("error-database-detail", error: e.to_string())));
+                }
             }
-            Err(e) => {
-                error.set(Some(t!("error-database-detail", error: e.to_string())));
-            }
-        }
+        });
     };
 
     rsx! {

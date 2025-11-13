@@ -61,7 +61,7 @@ pub fn EventAdd(
                             event_type(),
                             parsed_date,
                             notes_opt,
-                        ) {
+                        ).await {
                             Ok(event_id) => {
                                 // Save photos for this event
                                 for photo_path in photos() {
@@ -72,7 +72,7 @@ pub fn EventAdd(
                                         event_id,
                                         photo_path,
                                         thumbnail_opt,
-                                    );
+                                    ).await;
                                 }
                                 on_navigate.call(Screen::ProfileDetail(quail_id.clone()));
                             }

@@ -10,6 +10,8 @@ pub struct SyncSettings {
     pub remote_path: String,
     pub enabled: bool,
     pub last_sync: Option<String>,
+    pub device_id: Option<String>,
+    pub format_version: i32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -29,6 +31,8 @@ impl SyncSettings {
             remote_path,
             enabled: true,
             last_sync: None,
+            device_id: None,
+            format_version: 2,
             created_at: String::new(),
             updated_at: String::new(),
         }
