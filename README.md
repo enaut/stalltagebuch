@@ -201,8 +201,7 @@ cargo test
 - **[PROPOSALS.md](PROPOSALS.md):** Geplante Features
 
 ## 📄 Lizenz
-
-Proprietär / Privat
+MIT or Apache2
 
 ---
 
