@@ -34,7 +34,7 @@ pub fn calculate_statistics(
                 MIN(record_date) as first_date,
                 MAX(record_date) as last_date
              FROM egg_records 
-             WHERE record_date BETWEEN ?1 AND ?2",
+             WHERE record_date BETWEEN ?1 AND ?2 AND deleted = 0",
             vec![start, end],
         )
     } else if let Some(start) = start_date {
@@ -48,7 +48,7 @@ pub fn calculate_statistics(
                 MIN(record_date) as first_date,
                 MAX(record_date) as last_date
              FROM egg_records 
-             WHERE record_date >= ?1",
+             WHERE record_date >= ?1 AND deleted = 0",
             vec![start],
         )
     } else if let Some(end) = end_date {
@@ -62,7 +62,7 @@ pub fn calculate_statistics(
                 MIN(record_date) as first_date,
                 MAX(record_date) as last_date
              FROM egg_records 
-             WHERE record_date <= ?1",
+             WHERE record_date <= ?1 AND deleted = 0",
             vec![end],
         )
     } else {
@@ -75,7 +75,8 @@ pub fn calculate_statistics(
                 MAX(total_eggs) as max,
                 MIN(record_date) as first_date,
                 MAX(record_date) as last_date
-             FROM egg_records",
+             FROM egg_records
+             WHERE deleted = 0",
             vec![],
         )
     };
@@ -203,8 +204,8 @@ mod tests {
         assert_eq!(stats.daily_average, 0.0);
     }
 
-    #[test]
-    fn test_calculate_statistics_with_data() {
+    #[tokio::test]
+    async fn test_calculate_statistics_with_data() {
         let conn = Connection::open_in_memory().unwrap();
         database::schema::init_schema(&conn).unwrap();
 
@@ -214,7 +215,9 @@ mod tests {
                 NaiveDate::from_ymd_opt(2025, 11, i as u32).unwrap(),
                 10 + i as i32,
             );
-            crate::services::add_egg_record(&conn, &record).unwrap();
+            crate::services::add_egg_record(&conn, &record)
+                .await
+                .unwrap();
         }
 
         let stats = calculate_statistics(&conn, None, None).unwrap();
@@ -226,8 +229,8 @@ mod tests {
         assert!((stats.daily_average - 13.0).abs() < 0.01);
     }
 
-    #[test]
-    fn test_get_recent_trend() {
+    #[tokio::test]
+    async fn test_get_recent_trend() {
         let conn = Connection::open_in_memory().unwrap();
         database::schema::init_schema(&conn).unwrap();
 
@@ -237,7 +240,9 @@ mod tests {
                 NaiveDate::from_ymd_opt(2025, 11, i as u32).unwrap(),
                 (i * 2) as i32,
             );
-            crate::services::add_egg_record(&conn, &record).unwrap();
+            crate::services::add_egg_record(&conn, &record)
+                .await
+                .unwrap();
         }
 
         let trend = get_recent_trend(&conn, 5).unwrap();

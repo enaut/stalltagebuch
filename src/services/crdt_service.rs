@@ -21,13 +21,17 @@ impl HybridLogicalClock {
     }
 
     /// Advance HLC (increment logical counter or update timestamp)
+    /// For batch operations, ensures each operation gets a unique timestamp
     pub fn tick(&mut self) {
         let now = chrono::Utc::now().timestamp_millis();
         if now > self.ts {
             self.ts = now;
             self.logical_counter = 0;
         } else {
-            self.logical_counter += 1;
+            // Increment timestamp by 1ms to ensure uniqueness within batch
+            // This simplifies downstream clock comparisons
+            self.ts += 1;
+            self.logical_counter = 0;
         }
     }
 

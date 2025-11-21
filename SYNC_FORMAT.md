@@ -4,166 +4,102 @@
 
 The Stalltagebuch app synchronizes all data to a Nextcloud server via WebDAV. Data is organized hierarchically with TOML metadata files for structured information and JPG files for photos.
 
-## Directory Structure (Legacy Object Layout)
 
+# Multi-Master Sync Format (CRDT Only)
+
+Dieses Dokument beschreibt das aktuell allein gültige Synchronisationsformat. Das frühere hierarchische Legacy Objekt-Layout (profile.toml, event.toml, photo *.toml, egg_record *.toml) wurde vollständig entfernt.
+
+## Ziele
+- Multi-Master Betrieb ohne zentrale Autorität
+- Konfliktfreie Zusammenführung via logischer Uhr + Revision
+- Effiziente inkrementelle Replikation (append-only)
+- Minimale Dateianzahl, einfache Serialisierung
+
+## Verzeichnisstruktur
 ```
-Stalltagebuch/                          # Root sync directory
-├── wachtels/                           # All quail data
-│   └── {wachtel-uuid}/                 # Individual quail folder
-│       ├── profile.toml                # Quail master data
-│       ├── photos/                     # Quail photos (including profile photo)
-│       │   ├── {photo-uuid}.jpg        # Photo file
-│       │   └── {photo-uuid}.toml       # Photo metadata
-│       └── events/                     # Quail events
-│           └── {event-uuid}/           # Individual event
-│               ├── event.toml          # Event metadata
-│               └── photos/             # Event-specific photos
-│                   ├── {photo-uuid}.jpg
-│                   └── {photo-uuid}.toml
-├── egg_records/                        # Daily egg records
-│   └── {egg-record-uuid}.toml          # Daily egg count metadata
-└── orphaned_photos/                    # Photos without assignment
-    ├── {photo-uuid}.jpg
-    └── {photo-uuid}.toml
-```
+<remote_path>/
+  sync/
+    ops/
+      <device_id>/
+        YYYYMM/
+          <ULID>.ndjson
+      <other_device_id>/
+        YYYYMM/
+          ...
+    photos/
+      <photo_uuid>.jpg
+      <photo_uuid>_thumb.jpg
+      ...
+```Partitionierung nach Monat (`YYYYMM`) erleichtert begrenztes Laden alter Batches.
 
-## Metadata Formats
-
-### Quail Profile (`profile.toml`)
-
-Contains master data for a quail.
-
-```toml
-uuid = "550e8400-e29b-41d4-a716-446655440000"
-name = "Frieda"
-gender = "female"  # or "male"
-ring_color = "blue"  # optional
-device_id = "device-12345"
-created_at = "2025-01-15T10:30:00Z"
-updated_at = "2025-11-12T14:22:00Z"
-has_profile_photo = true  # boolean flag
+## NDJSON Batch Dateien
+Eine Datei enthält Zeilen – jede Zeile genau eine Operation:
+```json
+{"op_id":"01HXYZ...","rev":1,"clock":1731408000123,"entity":"quail","entity_id":"<uuid>","action":"upsert","fields":{"name":"Hilde","gender":"female"}}
+{"op_id":"01HXYZ...","rev":2,"clock":1731408002123,"entity":"event","entity_id":"<uuid>","action":"upsert","fields":{"type":"weight","date":"2024-11-12","notes":"840g"}}
+{"op_id":"01HXYZ...","rev":3,"clock":1731408003123,"entity":"egg_record","entity_id":"<uuid>","action":"upsert","fields":{"record_date":"2024-11-12","total_eggs":7}}
+{"op_id":"01HXYZ...","rev":4,"clock":1731408005123,"entity":"photo","entity_id":"<uuid>","action":"upsert","fields":{"relative":"wachtels/<quail_uuid>/events/<event_uuid>/photos/<photo_uuid>.jpg","thumb":"..."}}
 ```
 
-**Key Points:**
-- Profile photo is stored in `photos/` folder like any other photo
-- `has_profile_photo` is just a flag indicating existence
-- Profile photo is identified by `is_profile = true` in photo metadata
+### Pflichtfelder
+- `op_id`: ULID oder anderer eindeutig sortierbarer Identifier
+- `rev`: fortlaufende Revisionsnummer pro Operation (lokal) zur Tie-Break Auflösung
+- `clock`: logische Uhr in Millisekunden (Hybrid Logical Clock möglich)
+- `entity`: Typ (`quail`, `event`, `egg_record`, `photo`)
+- `entity_id`: UUID der Entität
+- `action`: `upsert` oder `delete`
+- `fields`: Key/Value Map der Änderungen (fehlt bei `delete` optional)
 
-### Event Metadata (`event.toml`)
+### Feld-Alias Toleranz
+- `event`: akzeptiert `type` oder `event_type`; `date` oder `event_date`
+- `photo`: akzeptiert `relative` oder `relative_path`; `thumb` oder `thumbnail_path`
 
-Describes lifecycle or health events for a quail.
+### Konfliktauflösung
+1. Sortierung aller ankommenden Ops nach `(clock, rev, op_id)`
+2. Für jedes Feld Last-Write-Wins
+3. `delete` erzeugt Tombstone (`deleted=1`) – spätere `upsert` kann wiederbeleben
 
-```toml
-uuid = "123e4567-e89b-12d3-a456-426614174000"
-wachtel_uuid = "550e8400-e29b-41d4-a716-446655440000"
-event_type = "geboren"  # or: am_leben, krank, gesund, markiert_zum_schlachten, geschlachtet, gestorben
-event_date = "2025-01-15"
-notes = "Aus Brutkasten, gesund"  # optional
-device_id = "device-12345"
-created_at = "2025-01-15T10:30:00Z"
-```
+### Löschungen
+Operation: `{ "action":"delete" }` setzt `deleted` Flag. Physisches Entfernen via periodischer GC (noch offen).
 
-**Event Types:**
-- `geboren` - Born
-- `am_leben` - Alive (status update)
-- `krank` - Sick
-- `gesund` - Healthy
-- `markiert_zum_schlachten` - Marked for slaughter
-- `geschlachtet` - Slaughtered
-- `gestorben` - Died
+## Upload Ablauf
+1. Lokale Änderungen landen im `op_log`
+2. Batch Builder sammelt bis Schwellwert (Anzahl oder Zeit)
+3. Erzeugt NDJSON Datei unter `ops/<device>/<YYYYMM>/<ULID>.ndjson`
+4. Remote Geräte laden neue Dateien und mergen
 
-### Photo Metadata (`{photo-uuid}.toml`)
+## Download Ablauf
+1. Listen aller unbekannten Dateien unter `sync/ops/*/*/`
+2. Stream Parse jeder NDJSON Zeile
+3. Anwenden CRDT Regeln
+4. Trigger Foto-Nachladen für neue `photo` Einträge (Binary Pfade in Feldern)
 
-Accompanies each photo file with contextual information.
+## Fotos
+Foto-Einträge beinhalten relative Pfade (`relative`) und optional Thumbnail (`thumb`) in den CRDT-Operationen. Die binären Fotodateien werden separat in einem flachen Layout unter `sync/photos/<uuid>.jpg` bzw. `sync/photos/<uuid>_thumb.jpg` hochgeladen und heruntergeladen. Es gibt keine TOML Objekt-Metadateien mehr.
 
-```toml
-photo_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-wachtel_id = 5  # optional, local DB ID
-wachtel_uuid = "550e8400-e29b-41d4-a716-446655440000"  # optional
-event_id = 12  # optional, local DB ID
-event_uuid = "123e4567-e89b-12d3-a456-426614174000"  # optional
-timestamp = "2025-11-12T14:22:00Z"
-notes = "Gutes Foto vom Kopf"  # optional, from event or photo context
-device_id = "device-12345"
-checksum = "abc123def456..."  # SHA256 hash
-is_profile = true  # or false
-relative_path = "wachtels/550e8400-e29b-41d4-a716-446655440000/photos/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg"
-```
+### Upload Prozess
+1. Lokal erstellte Fotos werden mit UUID-basiertem Dateinamen gespeichert
+2. CRDT Operation erfasst Metadaten (relative_path, thumbnail_path, Zuordnung)
+3. Binärdatei wird zu `sync/photos/<uuid>.jpg` hochgeladen
+4. Optional: Thumbnail zu `sync/photos/<uuid>_thumb.jpg`
 
-**Key Points:**
-- `is_profile = true` identifies the quail's profile photo
-- Profile photos are NOT stored separately; they remain in `photos/` folder
-- `relative_path` indicates the photo's location in the sync structure
-- Photos can be associated with a quail, an event, or neither (orphaned)
+### Download Prozess
+1. CRDT-Ops liefern Foto-Metadaten mit UUID
+2. System prüft ob `<uuid>.jpg` lokal existiert
+3. Falls fehlend: Download von `sync/photos/<uuid>.jpg`
+4. Speicherung im lokalen Foto-Verzeichnis
 
-### Egg Record Metadata (`{egg-record-uuid}.toml`)
+## Offene Punkte
+- Batch Kompaktierung (Snapshotting + GC)
+- Signierung/Authentizität der Batches
+- Priorisierung Foto-Download vs. UI Interaktion
 
-Daily egg production records.
-
-```toml
-uuid = "789e0123-e45b-67d8-a901-234567890abc"
-record_date = "2025-11-12"
-total_eggs = 15
-notes = "Alle Eier in gutem Zustand"  # optional
-device_id = "device-12345"
-created_at = "2025-11-12T18:00:00Z"
-updated_at = "2025-11-12T18:30:00Z"
-```
-
-**Key Points:**
-- One record per day across all quails
-- `total_eggs` must be >= 0
-- No direct photo association (photos would be linked via event if needed)
-
-## Synchronization Logic
-
-### Full Sync Order
-
-1. **Wachtels** - Master data and folder structure
-2. **Events** - Event metadata and folders
-3. **Egg Records** - Daily production data
-4. **Photos** - All photos with metadata
-
-### Photo Path Determination
-
-Photos are placed based on their associations:
-
-1. **Event Photo**: `wachtels/{wachtel-uuid}/events/{event-uuid}/photos/{photo-uuid}.jpg`
-2. **Quail Photo (incl. profile)**: `wachtels/{wachtel-uuid}/photos/{photo-uuid}.jpg`
-3. **Orphaned Photo**: `orphaned_photos/{photo-uuid}.jpg`
-
-**Important:** Profile photos are NOT treated differently in terms of storage location. The only distinction is the `is_profile` flag in their metadata.
-
-### Profile Photo Handling
-
-- Profile photo is stored in `wachtels/{wachtel-uuid}/photos/` like any other photo
-- Identified by `is_profile = true` in photo metadata
-- `profile.toml` contains `has_profile_photo` boolean flag
-- Changing profile photo only requires updating the `is_profile` flag
-- No file copying or moving needed when changing profile photos
-
-### Directory Creation
-
-Folders are created automatically via WebDAV `MKCOL` before uploading files:
-- `wachtels/{uuid}/`
-- `wachtels/{uuid}/photos/`
-- `wachtels/{uuid}/events/`
-- `wachtels/{uuid}/events/{event-uuid}/`
-- `wachtels/{uuid}/events/{event-uuid}/photos/`
-- `egg_records/`
-- `orphaned_photos/`
-
-### Conflict Resolution
-
-- UUIDs ensure uniqueness across devices
-- `device_id` tracks data origin
-- Timestamps (`created_at`, `updated_at`) help identify latest version
-- No automatic merge - manual conflict resolution required
-
+## Zusammenfassung
+Die App speichert Entitäten in SQLite und repliziert ausschließlich über CRDT Operationen (NDJSON). Der alte hierarchische Datei-Baum ist verworfen. Synchronisation bedeutet: Ops hochladen, fremde Ops herunterladen, anwenden, Binary Assets bei Bedarf nachladen.
 ## UUID Usage
 
 All entities have UUIDs (v4) for global uniqueness:
-- Wachtels (quails)
+- quails
 - Events
 - Photos
 - Egg Records
@@ -191,15 +127,15 @@ UUIDs are:
 ## Example Sync Session
 
 ```
-1. Sync wachtels (2 synced)
-   ├─ Create wachtels/550e8400.../
-   ├─ Create wachtels/550e8400.../photos/
-   ├─ Create wachtels/550e8400.../events/
+1. Sync quails (2 synced)
+   ├─ Create quails/550e8400.../
+   ├─ Create quails/550e8400.../photos/
+   ├─ Create quails/550e8400.../events/
    └─ Upload profile.toml
 
 2. Sync events (3 synced)
-   ├─ Create wachtels/550e8400.../events/123e4567.../
-   ├─ Create wachtels/550e8400.../events/123e4567.../photos/
+   ├─ Create quails/550e8400.../events/123e4567.../
+   ├─ Create quails/550e8400.../events/123e4567.../photos/
    └─ Upload event.toml
 
 3. Sync egg records (5 synced)
@@ -211,7 +147,7 @@ UUIDs are:
    ├─ Upload a1b2c3d4....toml
    └─ (repeat for each photo)
 
-Result: ✅ 2 Wachtels, 3 Events, 5 Eier-Einträge, 10 Fotos synchronisiert
+Result: ✅ 2 quails, 3 Events, 5 Eier-Einträge, 10 Fotos synchronisiert
 ```
 
 ## Technical Details
@@ -236,7 +172,7 @@ Result: ✅ 2 Wachtels, 3 Events, 5 Eier-Einträge, 10 Fotos synchronisiert
 
 ## Experimental Multi-Master Sync (Nextcloud/WebDAV)
 
-Ziel: Echte, konfliktarme, geräteübergreifende Synchronisierung ohne Datenverlust, auch offline-first. Nextcloud/WebDAV dient als „dummes“ Transport- und Aufbewahrungsmedium. Konflikte werden durch ein append-only Operations-Log pro Gerät vermieden und deterministisch per CRDTs zusammengeführt. Der bisherige „Legacy Object Layout“-Sync bleibt parallel bestehen, bis das neue Format GA ist.
+Ziel: Echte, konfliktarme, geräteübergreifende Synchronisierung ohne Datenverlust, auch offline-first. Nextcloud/WebDAV dient als „dummes“ Transport- und Aufbewahrungsmedium. Konflikte werden durch ein append-only Operations-Log pro Gerät vermieden und deterministisch per CRDTs zusammengeführt.
 
 ### Designprinzipien
 - Keine gleichzeitigen Schreibzugriffe auf dieselbe Datei: Jedes Gerät schreibt nur neue, eindeutig benannte Log-Dateien.
@@ -267,7 +203,6 @@ Stalltagebuch/
             └── remote_index.json               # lokales Spiegelbild (optional)
 ```
 
-Der Legacy-Bereich (Profile/Events/Photos/Egg Records) bleibt unverändert nutzbar; das neue „sync/“-Layout dient ausschließlich der robusten Replikation der Anwendungsdaten. Binärdaten (Fotos) verbleiben weiterhin im Legacy-Bereich; das Log referenziert sie per IDs/Checksums.
 
 ### Operationen (NDJSON Schema)
 Jede Zeile ist ein JSON-Objekt.
@@ -374,7 +309,7 @@ Content-Type: application/json
 - `format_version`: globale Versionsnummer in Snapshots; v1 initial.
 - Feature-Flag `experimental_sync` steuert Aktivierung.
 - Schattenbetrieb: zunächst nur Schreiben der Logs und Download-Dry-Run; später Pull→Apply→Push aktivieren.
-- Rollback: Flag OFF → App ignoriert Logs/Snapshots und nutzt Legacy-Sync weiter.
+- Rollback: Flag OFF → App ignoriert Logs/Snapshots
 
 ### Sicherheit & Datenschutz
 - Keine Credentials in Logs/Dateiinhalten.

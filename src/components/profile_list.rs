@@ -1,8 +1,8 @@
 use crate::database;
-use crate::image_processing;
 use crate::models::{Quail, RingColor};
 use crate::services;
 use crate::Screen;
+use base64::Engine;
 use dioxus::prelude::*;
 use dioxus_i18n::t;
 
@@ -26,10 +26,10 @@ pub fn ProfileListScreen(on_navigate: EventHandler<Screen>) -> Element {
             match services::profile_service::list_profiles_with_status(&conn, filter, !show_dead())
             {
                 Ok(list) => profiles.set(list),
-                Err(e) => eprintln!("{}: {}", t!("error-load-profiles-failed"), e), // Failed to load profiles
+                Err(e) => log::error!("{}: {}", t!("error-load-profiles-failed"), e), // Failed to load profiles
             }
         }
-        Err(e) => eprintln!("DB-Fehler: {}", e),
+        Err(e) => log::error!("DB-Fehler: {}", e),
     };
 
     // Load on mount
@@ -113,39 +113,53 @@ pub fn ProfileListScreen(on_navigate: EventHandler<Screen>) -> Element {
 pub fn ProfileCard(profile: Quail, on_click: EventHandler<()>) -> Element {
     let profile_uuid = profile.uuid;
 
+#[derive(Clone)]
+enum ImageState {
+    Loading,
+    Available(String),
+    Failed,
+}
+
     // Lade Profilfoto über photo_service
     let image_data = use_resource(move || async move {
-        eprintln!("##### Lade Profilbild für UUID: {:?}", profile_uuid);
+        log::debug!("##### Lade Profilbild für UUID: {:?}", profile_uuid);
         if let Ok(conn) = database::init_database() {
             match services::photo_service::get_profile_photo(&conn, &profile_uuid) {
                 Ok(Some(photo)) => {
-                    let path = photo.thumbnail_path.unwrap_or(photo.path);
-                    eprintln!("Lade Profilbild von Pfad: {}", path);
-                    match image_processing::image_path_to_data_url(&path) {
-                        Ok(data_url) => {
-                            if data_url.starts_with("data:image/") {
-                                return Some(data_url);
-                            } else {
-                                eprintln!("Profilbild-Data-URL ungültig: {}", data_url);
-                            }
+                    // Use get_photo_with_download to handle downloading
+                    match services::photo_service::get_photo_with_download(&conn, &photo.uuid, crate::models::photo::PhotoSize::Small).await {
+                        Ok(crate::models::photo::PhotoResult::Available(bytes)) => {
+                            // Convert bytes to data URL
+                            let data_url = format!("data:image/webp;base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes));
+                            log::debug!("Profilbild geladen für UUID: {}", profile_uuid);
+                            ImageState::Available(data_url)
+                        }
+                        Ok(crate::models::photo::PhotoResult::Downloading) => {
+                            log::debug!("Profilbild wird heruntergeladen für UUID: {}", profile_uuid);
+                            ImageState::Loading
+                        }
+                        Ok(crate::models::photo::PhotoResult::Failed(error, retry_count)) => {
+                            log::warn!("Profilbild Download fehlgeschlagen für UUID: {}: {} (Versuch {}/{})", profile_uuid, error, retry_count, 5);
+                            ImageState::Failed
                         }
                         Err(e) => {
-                            eprintln!("Profilbild konnte nicht geladen werden: {}", e);
+                            log::error!("Fehler beim Laden des Profilbilds: {}", e);
+                            ImageState::Failed
                         }
                     }
-                    eprintln!("Profilbild gefunden für UUID: {}", profile_uuid);
                 }
                 Ok(None) => {
-                    eprintln!("Kein Profilbild in DB gefunden für UUID: {}", profile_uuid);
+                    log::debug!("Kein Profilbild in DB gefunden für UUID: {}", profile_uuid);
+                    ImageState::Failed
                 }
                 Err(e) => {
-                    eprintln!("Fehler beim Laden des Profilbilds: {}", e);
+                    log::error!("Fehler beim Laden des Profilbilds: {}", e);
+                    ImageState::Failed
                 }
             }
-            eprintln!("Kein Profilbild gefunden für UUID: {}", profile_uuid);
+        } else {
+            ImageState::Failed
         }
-        eprintln!("Profilbild konnte nicht geladen werden.");
-        None
     });
 
     // Load current status from events
@@ -177,14 +191,20 @@ pub fn ProfileCard(profile: Quail, on_click: EventHandler<()>) -> Element {
             // Square Image Container
             div { class: "profile-image",
                 match image_data() {
-                    Some(Some(data_url)) => rsx! {
+                    Some(ImageState::Loading) => rsx! {
+                        div { class: "profile-image-placeholder", style: "display: flex; align-items: center; justify-content: center; font-size: 24px;", "⏳" }
+                    },
+                    Some(ImageState::Available(data_url)) => rsx! {
                         img {
                             src: data_url,
                             alt: profile.name.clone(),
                             style: "width: 100%; height: 100%; object-fit: cover;",
                         }
                     },
-                    None | Some(None) => rsx! {
+                    Some(ImageState::Failed) => rsx! {
+                        div { class: "profile-image-placeholder", "🐦" }
+                    },
+                    None => rsx! {
                         div { class: "profile-image-placeholder", "🐦" }
                     },
                 }

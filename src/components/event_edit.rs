@@ -1,12 +1,114 @@
 use crate::{
-    database, image_processing,
+    database,
+    image_processing,
     models::{EventType, QuailEvent},
     services::{event_service, photo_service},
     Screen,
 };
+use base64::Engine;
 use chrono::NaiveDate;
 use dioxus::prelude::*;
 use dioxus_i18n::t;
+
+#[component]
+fn PhotoDisplay(
+    photo_uuid: String,
+    event_id: String,
+    photos: Signal<Vec<crate::models::Photo>>,
+) -> Element {
+    let photo_uuid_clone = photo_uuid.clone();
+    let photo_data = use_resource(move || {
+        let photo_uuid = photo_uuid_clone.clone();
+        async move {
+            if let Ok(conn) = database::init_database() {
+                if let Ok(uuid) = uuid::Uuid::parse_str(&photo_uuid) {
+                    match photo_service::get_photo_with_download(
+                        &conn,
+                        &uuid,
+                        crate::models::photo::PhotoSize::Small,
+                    )
+                    .await
+                    {
+                        Ok(crate::models::photo::PhotoResult::Available(bytes)) => {
+                            let data_url = format!(
+                                "data:image/webp;base64,{}",
+                                base64::engine::general_purpose::STANDARD.encode(&bytes)
+                            );
+                            Some(data_url)
+                        }
+                        Ok(crate::models::photo::PhotoResult::Downloading) => None, // Still loading
+                        Ok(crate::models::photo::PhotoResult::Failed(_, _)) => {
+                            Some("failed".to_string())
+                        }
+                        Err(_) => Some("failed".to_string()),
+                    }
+                } else {
+                    Some("failed".to_string())
+                }
+            } else {
+                Some("failed".to_string())
+            }
+        }
+    });
+
+    rsx! {
+        div {
+            key: "{photo_uuid}",
+            style: "position:relative; aspect-ratio:1/1; border-radius:8px; overflow:hidden; border:2px solid #e0e0e0;",
+            {
+                match photo_data() {
+                    Some(Some(data_url)) if data_url == "downloading" => rsx! {
+                        div { class: "photo-loading", "⏳" }
+                    },
+                    Some(Some(data_url)) if data_url == "failed" => rsx! {
+                        div { class: "photo-failed", "⚠️" }
+                    },
+                    Some(Some(data_url)) => rsx! {
+                        img {
+                            src: "{data_url}",
+                            class: "event-photo",
+                            onclick: move |_| {
+                                // Optional: could add photo viewer or delete functionality
+                            }
+                        }
+                    },
+                    Some(None) => rsx! {
+                        div { class: "photo-loading", "⏳" }
+                    },
+                    None => rsx! {
+                        div { class: "photo-loading", "⏳" }
+                    },
+                }
+            }
+            button {
+                style: "position:absolute; top:4px; right:4px; width:28px; height:28px; background:rgba(204,0,0,0.85); color:white; border-radius:50%; font-size:14px; cursor:pointer;",
+                onclick: {
+                    let event_id_for_photo_delete = event_id.clone();
+                    let photo_uuid_clone = photo_uuid.clone();
+                    let photos_clone = photos.clone();
+                    move |_| {
+                        let event_id_clone = event_id_for_photo_delete.clone();
+                        let photo_uuid_clone2 = photo_uuid_clone.clone();
+                        let mut photos_clone2 = photos_clone.clone();
+                        spawn(async move {
+                            if let Ok(conn) = database::init_database() {
+                                if let Ok(uuid) = uuid::Uuid::parse_str(&photo_uuid_clone2) {
+                                    let _ = photo_service::delete_photo(&conn, &uuid).await;
+                                }
+                                if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
+                                    if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
+                                        photos_clone2.set(list);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                },
+                "×"
+            }
+        }
+    }
+}
 
 #[component]
 pub fn EventEditScreen(
@@ -27,11 +129,24 @@ pub fn EventEditScreen(
     let mut error = use_signal(|| String::new());
     let mut success = use_signal(|| false);
     let mut uploading = use_signal(|| false);
+    let saving = use_signal(|| false);
 
     #[cfg(target_os = "android")]
     let event_id_for_gallery = event_id.clone();
     #[cfg(target_os = "android")]
     let event_id_for_camera = event_id.clone();
+
+    // Retry failed downloads beim Mount
+    use_effect(move || {
+        spawn(async move {
+            if let Ok(conn) = database::init_database() {
+                if let Err(e) = crate::services::photo_service::retry_failed_downloads(&conn).await
+                {
+                    log::warn!("Failed to retry photo downloads: {}", e);
+                }
+            }
+        });
+    });
 
     // Load event + photos
     let event_id_for_load = event_id.clone();
@@ -50,7 +165,7 @@ pub fn EventEditScreen(
                 }
                 match photo_service::list_event_photos(&conn, &e_uuid) {
                     Ok(list) => photos.set(list),
-                    Err(e) => eprintln!("Fehler beim Laden der Event-Fotos: {}", e),
+                    Err(e) => log::error!("Fehler beim Laden der Event-Fotos: {}", e),
                 }
             }
         }
@@ -59,15 +174,19 @@ pub fn EventEditScreen(
     // Save handler
     let event_id_for_save = event_id.clone();
     let quail_id_for_save = quail_id.clone();
+    let mut saving_signal = saving.clone();
     let mut handle_save = move || {
+        saving_signal.set(true);
         if event_date_str().is_empty() {
             error.set(t!("error-empty-date"));
+            saving_signal.set(false);
             return;
         }
         let parsed_date = match NaiveDate::parse_from_str(&event_date_str(), "%Y-%m-%d") {
             Ok(d) => d,
             Err(_) => {
                 error.set(t!("error-invalid-date"));
+                saving_signal.set(false);
                 return;
             }
         };
@@ -79,6 +198,7 @@ pub fn EventEditScreen(
         } else {
             Some(notes())
         };
+        let mut saving_signal = saving_signal.clone();
         spawn(async move {
             if let Ok(conn) = database::init_database() {
                 if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
@@ -88,16 +208,23 @@ pub fn EventEditScreen(
                         event_type_val,
                         parsed_date,
                         notes_val,
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             success.set(true);
+                            saving_signal.set(false);
                             on_navigate.call(Screen::ProfileDetail(quail_id_clone.clone()));
                         }
-                        Err(e) => error.set(t!("error-save", error: e.to_string())),
+                        Err(e) => {
+                            error.set(t!("error-save", error: e.to_string()));
+                            saving_signal.set(false);
+                        }
                     }
                 }
             } else {
                 error.set(t!("error-db-unavailable"));
+                saving_signal.set(false);
             }
         });
     };
@@ -196,51 +323,10 @@ pub fn EventEditScreen(
                     if !photos().is_empty() {
                         div { style: "display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; margin-bottom:12px;",
                             for photo in photos() {
-                                {
-                                    let thumb = photo.thumbnail_path.clone().unwrap_or(photo.path.clone());
-                                    let style_border = "border:2px solid #e0e0e0;";
-                                    rsx! {
-                                        div {
-                                            key: "{photo.uuid}",
-                                            style: "position:relative; aspect-ratio:1/1; border-radius:8px; overflow:hidden; {style_border}",
-                                            {
-                                                match image_processing::image_path_to_data_url(&thumb) {
-                                                    Ok(data_url) => rsx! {
-                                                        img { src: data_url, style: "width:100%; height:100%; object-fit:cover;" }
-                                                    },
-                                                    Err(_) => rsx! {
-                                                        div { style: "width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#ddd; color:#666;",
-                                                            "⚠️"
-                                                        }
-                                                    },
-                                                }
-                                            }
-                                            button {
-                                                style: "position:absolute; top:4px; right:4px; width:28px; height:28px; background:rgba(204,0,0,0.85); color:white; border-radius:50%; font-size:14px; cursor:pointer;",
-                                                onclick: {
-                                                    let event_id_for_photo_delete = event_id.clone();
-                                                    let photo_uuid = photo.uuid;
-                                                    move |_| {
-                                                        let event_id_clone = event_id_for_photo_delete.clone();
-                                                        let photo_uuid_clone = photo_uuid.clone();
-                                                        spawn(async move {
-                                                            if let Ok(conn) = database::init_database() {
-                                                                let _ = photo_service::delete_photo(&conn, &photo_uuid_clone).await;
-                                                                if let Ok(e_uuid) = uuid::Uuid::parse_str(
-                                                                    &event_id_clone,
-                                                                ) {
-                                                                    if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
-                                                                        photos.set(list);
-                                                                    }
-                                                                }
-                                                            }
-                                                        });
-                                                    }
-                                                },
-                                                "×"
-                                            }
-                                        }
-                                    }
+                                PhotoDisplay {
+                                    photo_uuid: photo.uuid.to_string(),
+                                    event_id: event_id.clone(),
+                                    photos: photos.clone()
                                 }
                             }
                         }
@@ -265,12 +351,11 @@ pub fn EventEditScreen(
                                                         if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
                                                             for p in paths {
                                                                 let ps = p.to_string_lossy().to_string();
-                                                                let th = image_processing::create_thumbnail(&ps).ok();
                                                                 let _ = photo_service::add_event_photo(
                                                                     &conn,
                                                                     e_uuid,
                                                                     ps,
-                                                                    th,
+                                                                    None, // Thumbnails werden im Service erstellt
                                                                 ).await;
                                                             }
                                                             if let Ok(list) = photo_service::list_event_photos(
@@ -319,12 +404,11 @@ pub fn EventEditScreen(
                                                     if let Ok(conn) = database::init_database() {
                                                         if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
                                                             let ps = p.to_string_lossy().to_string();
-                                                            let th = image_processing::create_thumbnail(&ps).ok();
                                                             let _ = photo_service::add_event_photo(
                                                                 &conn,
                                                                 e_uuid,
                                                                 ps,
-                                                                th,
+                                                                None, // Thumbnails werden im Service erstellt
                                                             ).await;
                                                             if let Ok(list) = photo_service::list_event_photos(
                                                                 &conn,
@@ -360,12 +444,19 @@ pub fn EventEditScreen(
                 // Action buttons
                 div { style: "display:flex; gap:12px;",
                     button {
+                        disabled: saving(),
                         style: "flex:1; padding:14px; background:#0066cc; color:white; border-radius:8px; font-weight:600;",
                         onclick: move |_| handle_save(),
-                        "✓ "
-                        {t!("action-save")}
+                        if saving() {
+                            "⏳ "
+                            {t!("action-saving")}
+                        } else {
+                            "✓ "
+                            {t!("action-save")}
+                        }
                     }
                     button {
+                        disabled: saving(),
                         style: "flex:1; padding:14px; background:#e0e0e0; color:#333; border-radius:8px; font-weight:600;",
                         onclick: {
                             let quail_id_for_cancel = quail_id.clone();
@@ -374,6 +465,7 @@ pub fn EventEditScreen(
                         {t!("action-cancel")}
                     }
                     button {
+                        disabled: saving(),
                         style: "flex:1; padding:14px; background:#ffdddd; color:#cc0000; border-radius:8px; font-weight:600;",
                         onclick: move |_| handle_delete(),
                         "🗑️ "

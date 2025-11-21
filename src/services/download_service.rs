@@ -69,8 +69,10 @@ pub async fn download_and_merge_ops(conn: &Connection) -> Result<usize, AppError
                     .get(&file_path)
                     .await
                     .map_err(|e| AppError::Other(format!("Download failed: {:?}", e)))?;
-                
-                let content_bytes = response.bytes().await
+
+                let content_bytes = response
+                    .bytes()
+                    .await
                     .map_err(|e| AppError::Other(format!("Read response failed: {:?}", e)))?;
 
                 let content_str = String::from_utf8(content_bytes.to_vec())
@@ -97,36 +99,136 @@ pub async fn download_and_merge_ops(conn: &Connection) -> Result<usize, AppError
     // Sort operations by clock (deterministic total order)
     all_ops.sort_by(|a, b| a.clock.cmp(&b.clock));
 
-    // Apply operations
+    // Apply operations (multi-master CRDT only)
     let ops_applied = apply_operations(conn, &all_ops)?;
+
+    // Best-effort: Lade alle fehlenden Fotodateien (aus relative_path) herunter
+    let downloaded_files =
+        download_missing_photos(conn, &client, settings.remote_path.trim_end_matches('/')).await?;
+
+    // Debug: Anzahl Events nach Merge
+    if let Ok(count_events) = conn.query_row::<i64, _, _>(
+        "SELECT COUNT(*) FROM quail_events WHERE deleted = 0",
+        [],
+        |row| row.get(0),
+    ) {
+        log::info!("CRDT: Events im lokalen DB nach Merge: {}", count_events);
+    }
 
     // Save updated manifest
     save_manifest(conn, &manifest)?;
 
-    eprintln!(
-        "Downloaded and merged {} operations from {} files",
+    log::info!(
+        "Downloaded and merged {} operations from {} files ({} photos downloaded)",
         ops_applied,
-        manifest.len()
+        manifest.len(),
+        downloaded_files
     );
 
     Ok(ops_applied)
 }
 
-/// Lists directory contents (subdirectories or files)
-async fn list_directory(
+/// Lädt fehlende Fotodateien anhand von `relative_path` herunter und markiert sie als synchronisiert
+async fn download_missing_photos(
+    conn: &Connection,
     client: &reqwest_dav::Client,
-    path: &str,
-) -> Result<Vec<String>, AppError> {
-    let list_result = client
-        .list(path, reqwest_dav::Depth::Number(1))
-        .await
-        .map_err(|e| AppError::Other(format!("PROPFIND failed: {:?}", e)))?;
+    remote_base: &str,
+) -> Result<usize, AppError> {
+    let mut downloaded = 0usize;
+
+    // Alle Photos mit (relative_path oder path) ermitteln
+    let mut stmt = conn.prepare(
+        "SELECT uuid, COALESCE(relative_path, path) AS rel
+         FROM photos
+         WHERE deleted = 0 AND (relative_path IS NOT NULL OR path IS NOT NULL)",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        let _uuid: String = row.get(0)?; // UUID aktuell nicht benötigt
+        let rel: String = row.get(1)?;
+        Ok(rel)
+    })?;
+
+    for row in rows {
+        let rel = row.map_err(|e| AppError::Other(format!("Row error: {:?}", e)))?;
+        if rel.trim().is_empty() {
+            continue;
+        }
+
+        let abs = crate::services::photo_service::get_absolute_photo_path(&rel);
+        let abs_path = std::path::Path::new(&abs);
+        if abs_path.exists() {
+            continue;
+        }
+
+        // Remote Pfad: sync/photos/<uuid>.jpg (flache Struktur)
+        let photo_filename = if rel.contains('/') {
+            // Extrahiere Dateiname falls rel_path verschachtelt ist
+            rel.split('/').last().unwrap_or(&rel)
+        } else {
+            &rel
+        };
+
+        let remote_path = format!("{}/sync/photos/{}", remote_base, photo_filename);
+        log::info!("Downloading missing photo {} -> {}", remote_path, abs);
+
+        // Versuche Download
+        match client.get(&remote_path).await {
+            Ok(resp) => match resp.bytes().await {
+                Ok(bytes) => {
+                    if let Some(parent) = abs_path.parent() {
+                        if !parent.exists() {
+                            if let Err(e) = std::fs::create_dir_all(parent) {
+                                log::error!(
+                                    "Foto Ordner anlegen fehlgeschlagen {}: {:?}",
+                                    parent.display(),
+                                    e
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    if let Err(e) = std::fs::write(&abs_path, &bytes) {
+                        log::error!(
+                            "Speichern Foto fehlgeschlagen {}: {:?}",
+                            abs_path.display(),
+                            e
+                        );
+                        continue;
+                    }
+                    downloaded += 1;
+                }
+                Err(e) => {
+                    log::warn!("Bytes lesen fehlgeschlagen {}: {:?}", remote_path, e);
+                }
+            },
+            Err(e) => {
+                log::debug!("Foto nicht gefunden remote {}: {:?}", remote_path, e);
+            }
+        }
+    }
+
+    Ok(downloaded)
+}
+
+/// Lists directory contents (subdirectories or files)
+/// Returns empty Vec if directory doesn't exist (404)
+async fn list_directory(client: &reqwest_dav::Client, path: &str) -> Result<Vec<String>, AppError> {
+    let list_result = match client.list(path, reqwest_dav::Depth::Number(1)).await {
+        Ok(result) => result,
+        Err(e) => {
+            // Directory doesn't exist yet (404) - return empty list
+            log::debug!("Directory {} doesn't exist or is empty: {:?}", path, e);
+            return Ok(Vec::new());
+        }
+    };
 
     let mut names = Vec::new();
 
     for item in list_result {
         if let reqwest_dav::list_cmd::ListEntity::File(file) = item {
-            let name = file.href
+            let name = file
+                .href
                 .trim_end_matches('/')
                 .split('/')
                 .last()
@@ -136,7 +238,8 @@ async fn list_directory(
                 names.push(name);
             }
         } else if let reqwest_dav::list_cmd::ListEntity::Folder(folder) = item {
-            let name = folder.href
+            let name = folder
+                .href
                 .trim_end_matches('/')
                 .split('/')
                 .last()
@@ -152,20 +255,26 @@ async fn list_directory(
 }
 
 /// Lists files with their ETags
+/// Returns empty Vec if directory doesn't exist (404)
 async fn list_files_with_etags(
     client: &reqwest_dav::Client,
     path: &str,
 ) -> Result<Vec<(String, String)>, AppError> {
-    let list_result = client
-        .list(path, reqwest_dav::Depth::Number(1))
-        .await
-        .map_err(|e| AppError::Other(format!("PROPFIND failed: {:?}", e)))?;
+    let list_result = match client.list(path, reqwest_dav::Depth::Number(1)).await {
+        Ok(result) => result,
+        Err(e) => {
+            // Directory doesn't exist yet (404) - return empty list
+            log::debug!("Directory {} doesn't exist or is empty: {:?}", path, e);
+            return Ok(Vec::new());
+        }
+    };
 
     let mut files = Vec::new();
 
     for item in list_result {
         if let reqwest_dav::list_cmd::ListEntity::File(file) = item {
-            let filename = file.href
+            let filename = file
+                .href
                 .trim_end_matches('/')
                 .split('/')
                 .last()
@@ -200,8 +309,9 @@ fn load_manifest(conn: &Connection) -> Result<HashMap<String, String>, AppError>
             conn.prepare("SELECT path, etag FROM sync_manifest")
         })?;
 
-    let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
 
     for row in rows {
         let (path, etag) = row?;
@@ -228,10 +338,7 @@ fn save_manifest(conn: &Connection, manifest: &HashMap<String, String>) -> Resul
 }
 
 /// Applies operations to local database
-fn apply_operations(
-    conn: &Connection,
-    ops: &[crdt_service::Operation],
-) -> Result<usize, AppError> {
+fn apply_operations(conn: &Connection, ops: &[crdt_service::Operation]) -> Result<usize, AppError> {
     let tx = conn.unchecked_transaction()?;
     let mut applied = 0;
 
@@ -256,7 +363,7 @@ fn apply_operations(
             "photo" => apply_photo_op(&tx, op)?,
             "egg" => apply_egg_op(&tx, op)?,
             _ => {
-                eprintln!("Unknown entity type: {}", op.entity_type);
+                log::warn!("Unknown entity type: {}", op.entity_type);
                 continue;
             }
         }
@@ -316,7 +423,9 @@ fn apply_quail_op(
             // Apply field update
             match field.as_str() {
                 "name" => {
-                    let name = value.as_str().ok_or_else(|| AppError::Validation("Invalid name value".to_string()))?;
+                    let name = value
+                        .as_str()
+                        .ok_or_else(|| AppError::Validation("Invalid name value".to_string()))?;
                     tx.execute(
                         "INSERT OR REPLACE INTO quails (uuid, name, gender, ring_color, profile_photo, rev, logical_clock, deleted)
                          SELECT ?1, ?2, COALESCE(gender, 'unknown'), ring_color, profile_photo, ?3, ?3, 0
@@ -325,7 +434,9 @@ fn apply_quail_op(
                     )?;
                 }
                 "gender" => {
-                    let gender = value.as_str().ok_or_else(|| AppError::Validation("Invalid gender value".to_string()))?;
+                    let gender = value
+                        .as_str()
+                        .ok_or_else(|| AppError::Validation("Invalid gender value".to_string()))?;
                     tx.execute(
                         "UPDATE quails SET gender = ?1, logical_clock = ?2 WHERE uuid = ?3",
                         rusqlite::params![gender, op.clock.ts, &op.entity_id],
@@ -339,14 +450,37 @@ fn apply_quail_op(
                     )?;
                 }
                 "profile_photo" => {
-                    let photo = value.as_str();
-                    tx.execute(
-                        "UPDATE quails SET profile_photo = ?1, logical_clock = ?2 WHERE uuid = ?3",
-                        rusqlite::params![photo, op.clock.ts, &op.entity_id],
-                    )?;
+                    if let Some(photo_uuid) = value.as_str() {
+                        let exists: bool = tx
+                            .query_row(
+                                "SELECT 1 FROM photos WHERE uuid = ?1",
+                                rusqlite::params![photo_uuid],
+                                |_| Ok(true),
+                            )
+                            .unwrap_or(false);
+                        if !exists {
+                            // Lege Platzhalter an – Pfad leer, wird durch späteres Photo-Op aufgefüllt
+                            log::info!(
+                                "CRDT: Erstelle Platzhalter für fehlendes Profilfoto {} (out-of-order merge)",
+                                photo_uuid
+                            );
+                            tx.execute(
+                                "INSERT OR IGNORE INTO photos (uuid, quail_id, event_id, path, relative_path, thumbnail_path, rev, logical_clock, deleted)
+                                 VALUES (?1, NULL, NULL, '', NULL, NULL, 0, ?2, 0)",
+                                rusqlite::params![photo_uuid, op.clock.ts],
+                            )?;
+                        }
+                        // Versuche jetzt das Profilfoto zu setzen (FK greift nur wenn Foto nicht existiert)
+                        if let Err(e) = tx.execute(
+                            "UPDATE quails SET profile_photo = ?1, logical_clock = ?2 WHERE uuid = ?3",
+                            rusqlite::params![photo_uuid, op.clock.ts, &op.entity_id],
+                        ) {
+                            log::error!("CRDT: Setzen von profile_photo {} fehlgeschlagen: {:?}", photo_uuid, e);
+                        }
+                    }
                 }
                 _ => {
-                    eprintln!("Unknown quail field: {}", field);
+                    log::warn!("Unknown quail field: {}", field);
                 }
             }
         }
@@ -387,7 +521,39 @@ fn apply_event_op(
 
             match field.as_str() {
                 "quail_id" => {
-                    let quail_id = value.as_str().ok_or_else(|| AppError::Validation("Invalid quail_id".to_string()))?;
+                    let quail_id = value
+                        .as_str()
+                        .ok_or_else(|| AppError::Validation("Invalid quail_id".to_string()))?;
+
+                    // Sicherstellen, dass die referenzierte Wachtel existiert (Platzhalter bei Out-of-Order Merge)
+                    let quail_exists: bool = tx
+                        .query_row(
+                            "SELECT 1 FROM quails WHERE uuid = ?1",
+                            rusqlite::params![quail_id],
+                            |_| Ok(true),
+                        )
+                        .unwrap_or(false);
+
+                    if !quail_exists {
+                        log::info!(
+                            "CRDT: Erstelle Platzhalter-Wachtel {} für Event {} (out-of-order merge)",
+                            quail_id,
+                            &op.entity_id
+                        );
+                        // Minimal gültiger Platzhalter: name darf nicht NULL sein
+                        if let Err(e) = tx.execute(
+                            "INSERT OR IGNORE INTO quails (uuid, name, rev, logical_clock, deleted)
+                             VALUES (?1, '', 0, ?2, 0)",
+                            rusqlite::params![quail_id, op.clock.ts],
+                        ) {
+                            log::error!(
+                                "CRDT: Anlage Platzhalter-Wachtel {} fehlgeschlagen: {:?}",
+                                quail_id,
+                                e
+                            );
+                        }
+                    }
+
                     tx.execute(
                         "INSERT OR REPLACE INTO quail_events (uuid, quail_id, event_type, event_date, notes, rev, logical_clock, deleted)
                          SELECT ?1, ?2, COALESCE(event_type, 'alive'), COALESCE(event_date, date('now')), notes, ?3, ?3, 0
@@ -395,15 +561,19 @@ fn apply_event_op(
                         rusqlite::params![&op.entity_id, quail_id, op.clock.ts],
                     )?;
                 }
-                "event_type" => {
-                    let event_type = value.as_str().ok_or_else(|| AppError::Validation("Invalid event_type".to_string()))?;
+                "event_type" | "type" => {
+                    let event_type = value
+                        .as_str()
+                        .ok_or_else(|| AppError::Validation("Invalid event_type".to_string()))?;
                     tx.execute(
                         "UPDATE quail_events SET event_type = ?1, logical_clock = ?2 WHERE uuid = ?3",
                         rusqlite::params![event_type, op.clock.ts, &op.entity_id],
                     )?;
                 }
-                "event_date" => {
-                    let event_date = value.as_str().ok_or_else(|| AppError::Validation("Invalid event_date".to_string()))?;
+                "event_date" | "date" => {
+                    let event_date = value
+                        .as_str()
+                        .ok_or_else(|| AppError::Validation("Invalid event_date".to_string()))?;
                     tx.execute(
                         "UPDATE quail_events SET event_date = ?1, logical_clock = ?2 WHERE uuid = ?3",
                         rusqlite::params![event_date, op.clock.ts, &op.entity_id],
@@ -417,7 +587,7 @@ fn apply_event_op(
                     )?;
                 }
                 _ => {
-                    eprintln!("Unknown event field: {}", field);
+                    log::warn!("Unknown event field: {}", field);
                 }
             }
         }
@@ -459,36 +629,86 @@ fn apply_photo_op(
             match field.as_str() {
                 "quail_id" => {
                     let quail_id = value.as_str();
-                    tx.execute(
-                        "UPDATE photos SET quail_id = ?1, logical_clock = ?2 WHERE uuid = ?3",
-                        rusqlite::params![quail_id, op.clock.ts, &op.entity_id],
-                    )?;
+                    // Stelle sicher dass Foto-Eintrag existiert
+                    let exists: bool = tx
+                        .query_row(
+                            "SELECT 1 FROM photos WHERE uuid = ?1",
+                            rusqlite::params![&op.entity_id],
+                            |_| Ok(true),
+                        )
+                        .unwrap_or(false);
+
+                    if !exists {
+                        // Lege Platzhalter an
+                        tx.execute(
+                            "INSERT INTO photos (uuid, quail_id, event_id, path, relative_path, thumbnail_path, rev, logical_clock, deleted)
+                             VALUES (?1, ?2, NULL, '', NULL, NULL, 0, ?3, 0)",
+                            rusqlite::params![&op.entity_id, quail_id, op.clock.ts],
+                        )?;
+                    } else {
+                        tx.execute(
+                            "UPDATE photos SET quail_id = ?1, logical_clock = ?2 WHERE uuid = ?3",
+                            rusqlite::params![quail_id, op.clock.ts, &op.entity_id],
+                        )?;
+                    }
                 }
                 "event_id" => {
                     let event_id = value.as_str();
-                    tx.execute(
-                        "UPDATE photos SET event_id = ?1, logical_clock = ?2 WHERE uuid = ?3",
-                        rusqlite::params![event_id, op.clock.ts, &op.entity_id],
-                    )?;
+                    // Stelle sicher dass Foto-Eintrag existiert
+                    let exists: bool = tx
+                        .query_row(
+                            "SELECT 1 FROM photos WHERE uuid = ?1",
+                            rusqlite::params![&op.entity_id],
+                            |_| Ok(true),
+                        )
+                        .unwrap_or(false);
+
+                    if !exists {
+                        // Lege Platzhalter an
+                        tx.execute(
+                            "INSERT INTO photos (uuid, quail_id, event_id, path, relative_path, thumbnail_path, rev, logical_clock, deleted)
+                             VALUES (?1, NULL, ?2, '', NULL, NULL, 0, ?3, 0)",
+                            rusqlite::params![&op.entity_id, event_id, op.clock.ts],
+                        )?;
+                    } else {
+                        tx.execute(
+                            "UPDATE photos SET event_id = ?1, logical_clock = ?2 WHERE uuid = ?3",
+                            rusqlite::params![event_id, op.clock.ts, &op.entity_id],
+                        )?;
+                    }
                 }
-                "relative_path" => {
-                    let path = value.as_str().ok_or_else(|| AppError::Validation("Invalid path".to_string()))?;
+                "relative_path" | "relative" => {
+                    let path = value
+                        .as_str()
+                        .ok_or_else(|| AppError::Validation("Invalid path".to_string()))?;
+                    // Lege Eintrag an falls nicht vorhanden (ohne quail_id/event_id zu überschreiben)
                     tx.execute(
-                        "INSERT OR REPLACE INTO photos (uuid, path, relative_path, quail_id, event_id, thumbnail_path, rev, logical_clock, deleted)
-                         SELECT ?1, COALESCE(path, ''), ?2, COALESCE(quail_id, ''), COALESCE(event_id, ''), thumbnail_path, ?3, ?3, 0
-                         FROM (SELECT NULL) LEFT JOIN photos ON uuid = ?1",
+                        "INSERT OR IGNORE INTO photos (uuid, path, relative_path, quail_id, event_id, thumbnail_path, rev, logical_clock, deleted)
+                         VALUES (?1, '', ?2, NULL, NULL, NULL, 0, ?3, 0)",
                         rusqlite::params![&op.entity_id, path, op.clock.ts],
                     )?;
+                    // Update nur relative_path und logical_clock, behalte quail_id/event_id
+                    tx.execute(
+                        "UPDATE photos SET relative_path = ?1, logical_clock = ?2 WHERE uuid = ?3",
+                        rusqlite::params![path, op.clock.ts, &op.entity_id],
+                    )?;
                 }
-                "relative_thumb" => {
+                "relative_thumb" | "thumb" => {
                     let thumb = value.as_str();
+                    // Lege Eintrag an falls nicht vorhanden
+                    tx.execute(
+                        "INSERT OR IGNORE INTO photos (uuid, path, relative_path, quail_id, event_id, thumbnail_path, rev, logical_clock, deleted)
+                         VALUES (?1, '', NULL, NULL, NULL, ?2, 0, ?3, 0)",
+                        rusqlite::params![&op.entity_id, thumb, op.clock.ts],
+                    )?;
+                    // Update thumbnail_path
                     tx.execute(
                         "UPDATE photos SET thumbnail_path = ?1, logical_clock = ?2 WHERE uuid = ?3",
                         rusqlite::params![thumb, op.clock.ts, &op.entity_id],
                     )?;
                 }
                 _ => {
-                    eprintln!("Unknown photo field: {}", field);
+                    log::warn!("Unknown photo field: {}", field);
                 }
             }
         }
@@ -505,52 +725,74 @@ fn apply_photo_op(
 }
 
 /// Applies an egg operation
-fn apply_egg_op(
-    tx: &rusqlite::Transaction,
-    op: &crdt_service::Operation,
-) -> Result<(), AppError> {
+fn apply_egg_op(tx: &rusqlite::Transaction, op: &crdt_service::Operation) -> Result<(), AppError> {
     use crate::services::crdt_service::CrdtOp;
 
     match &op.op {
         CrdtOp::LwwSet { field, value } => {
-            let current: Option<(i64, i32)> = tx
+            // Prüfe ob Eintrag gelöscht ist
+            let deleted: Option<i32> = tx
                 .query_row(
-                    "SELECT logical_clock, deleted FROM egg_records WHERE uuid = ?1",
+                    "SELECT deleted FROM egg_records WHERE uuid = ?1",
                     rusqlite::params![&op.entity_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| row.get(0),
                 )
                 .ok();
 
-            if let Some((current_clock, deleted)) = current {
-                if current_clock >= op.clock.ts || deleted == 1 {
-                    return Ok(());
-                }
+            if deleted == Some(1) {
+                return Ok(()); // Ignoriere Updates zu gelöschten Einträgen
             }
 
             match field.as_str() {
-                "date" => {
-                    let date = value.as_str().ok_or_else(|| AppError::Validation("Invalid date".to_string()))?;
+                "date" | "record_date" => {
+                    let date = value
+                        .as_str()
+                        .ok_or_else(|| AppError::Validation("Invalid date".to_string()))?;
+                    // Erst sicherstellen dass Eintrag existiert
                     tx.execute(
-                        "INSERT OR REPLACE INTO egg_records (uuid, record_date, total_eggs, notes, rev, logical_clock, deleted)
-                         SELECT ?1, ?2, COALESCE(total_eggs, 0), notes, ?3, ?3, 0
-                         FROM (SELECT NULL) LEFT JOIN egg_records ON uuid = ?1",
+                        "INSERT OR IGNORE INTO egg_records (uuid, record_date, total_eggs, notes, rev, logical_clock, deleted)
+                         VALUES (?1, ?2, 0, NULL, ?3, ?3, 0)",
                         rusqlite::params![&op.entity_id, date, op.clock.ts],
                     )?;
-                }
-                "count" => {
-                    let count = value.as_i64().ok_or_else(|| AppError::Validation("Invalid count".to_string()))? as i32;
+                    // Dann updaten (jede Operation hat jetzt unterschiedlichen ts wegen tick)
                     tx.execute(
-                        "UPDATE egg_records SET total_eggs = ?1, logical_clock = ?2 WHERE uuid = ?3",
+                        "UPDATE egg_records SET record_date = ?1, logical_clock = ?2 
+                         WHERE uuid = ?3",
+                        rusqlite::params![date, op.clock.ts, &op.entity_id],
+                    )?;
+                }
+                "count" | "total_eggs" => {
+                    let count = value
+                        .as_i64()
+                        .ok_or_else(|| AppError::Validation("Invalid count".to_string()))?
+                        as i32;
+                    // Erst sicherstellen dass Eintrag existiert (mit Dummy-Datum wenn nötig)
+                    tx.execute(
+                        "INSERT OR IGNORE INTO egg_records (uuid, record_date, total_eggs, notes, rev, logical_clock, deleted)
+                         VALUES (?1, date('now'), ?2, NULL, ?3, ?3, 0)",
+                        rusqlite::params![&op.entity_id, count, op.clock.ts],
+                    )?;
+                    // Dann updaten (jede Operation hat jetzt unterschiedlichen ts wegen tick)
+                    tx.execute(
+                        "UPDATE egg_records SET total_eggs = ?1, logical_clock = ?2 
+                         WHERE uuid = ?3",
                         rusqlite::params![count, op.clock.ts, &op.entity_id],
                     )?;
                 }
                 _ => {
-                    eprintln!("Unknown egg field: {}", field);
+                    log::warn!("Unknown egg field: {}", field);
                 }
             }
         }
         CrdtOp::PnIncrement { field, delta } => {
-            if field == "count" {
+            if field == "count" || field == "total_eggs" {
+                // Stelle sicher dass Eintrag existiert
+                tx.execute(
+                    "INSERT OR IGNORE INTO egg_records (uuid, record_date, total_eggs, notes, rev, logical_clock, deleted)
+                     VALUES (?1, date('now'), 0, NULL, ?2, ?2, 0)",
+                    rusqlite::params![&op.entity_id, op.clock.ts],
+                )?;
+                // Increment
                 tx.execute(
                     "UPDATE egg_records SET total_eggs = total_eggs + ?1, logical_clock = ?2 WHERE uuid = ?3",
                     rusqlite::params![delta, op.clock.ts, &op.entity_id],
@@ -578,13 +820,22 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
 
         let mut manifest = HashMap::new();
-        manifest.insert("sync/ops/device1/202412/01JGTEST.ndjson".to_string(), "\"abc123\"".to_string());
-        manifest.insert("sync/ops/device2/202412/01JGTEST2.ndjson".to_string(), "\"def456\"".to_string());
+        manifest.insert(
+            "sync/ops/device1/202412/01JGTEST.ndjson".to_string(),
+            "\"abc123\"".to_string(),
+        );
+        manifest.insert(
+            "sync/ops/device2/202412/01JGTEST2.ndjson".to_string(),
+            "\"def456\"".to_string(),
+        );
 
         save_manifest(&conn, &manifest).unwrap();
         let loaded = load_manifest(&conn).unwrap();
 
         assert_eq!(loaded.len(), 2);
-        assert_eq!(loaded.get("sync/ops/device1/202412/01JGTEST.ndjson"), Some(&"\"abc123\"".to_string()));
+        assert_eq!(
+            loaded.get("sync/ops/device1/202412/01JGTEST.ndjson"),
+            Some(&"\"abc123\"".to_string())
+        );
     }
 }

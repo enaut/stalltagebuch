@@ -34,12 +34,24 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         conn.execute("INSERT INTO schema_version (version) VALUES (3)", [])?;
     }
 
+    // Migration to version 4: Remove strict photo FK triggers to allow CRDT out-of-order merges
+    if current_version < 4 {
+        migrate_to_v4(conn)?;
+        conn.execute("INSERT INTO schema_version (version) VALUES (4)", [])?;
+    }
+
+    // Migration to version 5: Add initial_upload_done flag to sync_settings
+    if current_version < 5 {
+        migrate_to_v5(conn)?;
+        conn.execute("INSERT INTO schema_version (version) VALUES (5)", [])?;
+    }
+
     Ok(())
 }
 
 /// Create the complete schema (version 2) - multi-master sync ready (CRDT fields)
 fn create_schema(conn: &Connection) -> Result<()> {
-    // Table: photos (now with rev/logical_clock/deleted fields for CRDT sync)
+    // Table: photos (now with rev/logical_clock/deleted fields for CRDT sync + multi-size thumbnails + sync status)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS photos (
             uuid TEXT PRIMARY KEY,
@@ -48,6 +60,12 @@ fn create_schema(conn: &Connection) -> Result<()> {
             path TEXT NOT NULL,
             relative_path TEXT,
             thumbnail_path TEXT,
+            thumbnail_small_path TEXT,
+            thumbnail_medium_path TEXT,
+            sync_status TEXT DEFAULT 'local_only' CHECK(sync_status IN ('local_only', 'uploading', 'synced', 'download_pending', 'downloading', 'download_failed')),
+            sync_error TEXT,
+            last_sync_attempt INTEGER,
+            retry_count INTEGER DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             rev INTEGER NOT NULL DEFAULT 0,
@@ -154,28 +172,8 @@ fn create_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // Add foreign key constraints to photos after all tables are created
-    conn.execute(
-        "CREATE TRIGGER IF NOT EXISTS photos_quail_fk_check
-         BEFORE INSERT ON photos
-         BEGIN
-            SELECT RAISE(ABORT, 'Foreign key violation: quail_id does not exist')
-            WHERE NEW.quail_id IS NOT NULL 
-            AND NOT EXISTS (SELECT 1 FROM quails WHERE uuid = NEW.quail_id);
-         END",
-        [],
-    )?;
-
-    conn.execute(
-        "CREATE TRIGGER IF NOT EXISTS photos_event_fk_check
-         BEFORE INSERT ON photos
-         BEGIN
-            SELECT RAISE(ABORT, 'Foreign key violation: event_id does not exist')
-            WHERE NEW.event_id IS NOT NULL 
-            AND NOT EXISTS (SELECT 1 FROM quail_events WHERE uuid = NEW.event_id);
-         END",
-        [],
-    )?;
+    // Note: We no longer enforce strict FK on photos via triggers to support
+    // CRDT/out-of-order sync. Orphaned photos are allowed and handled in sync logic.
 
     // Table: egg_records (Daily egg production tracking)
     conn.execute(
@@ -334,7 +332,7 @@ fn migrate_to_v3(conn: &Connection) -> Result<()> {
         .unwrap_or(false);
 
     if !has_column {
-        eprintln!("Migrating to schema version 3: adding relative_path column");
+        log::info!("Migrating to schema version 3: adding relative_path column");
         conn.execute("ALTER TABLE photos ADD COLUMN relative_path TEXT", [])?;
 
         // Migrate existing data: copy path to relative_path for existing photos
@@ -342,7 +340,37 @@ fn migrate_to_v3(conn: &Connection) -> Result<()> {
             "UPDATE photos SET relative_path = path WHERE relative_path IS NULL",
             [],
         )?;
-        eprintln!("Migration to v3 complete");
+        log::info!("Migration to v3 complete");
+    }
+
+    Ok(())
+}
+
+/// Migration to version 4: Drop strict photo FK triggers to avoid aborts during CRDT merges
+fn migrate_to_v4(conn: &Connection) -> Result<()> {
+    // Best-effort drop if they exist in older databases
+    let _ = conn.execute("DROP TRIGGER IF EXISTS photos_quail_fk_check", []);
+    let _ = conn.execute("DROP TRIGGER IF EXISTS photos_event_fk_check", []);
+    Ok(())
+}
+
+/// Migration to version 5: Add initial_upload_done flag to sync_settings
+fn migrate_to_v5(conn: &Connection) -> Result<()> {
+    let has_column: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('sync_settings') WHERE name='initial_upload_done'",
+            [],
+            |row| row.get::<_, i32>(0).map(|c| c > 0),
+        )
+        .unwrap_or(false);
+
+    if !has_column {
+        log::info!("Migrating to schema version 5: adding initial_upload_done column");
+        conn.execute(
+            "ALTER TABLE sync_settings ADD COLUMN initial_upload_done INTEGER NOT NULL DEFAULT 0 CHECK(initial_upload_done IN (0,1))",
+            [],
+        )?;
+        log::info!("Migration to v5 complete");
     }
 
     Ok(())

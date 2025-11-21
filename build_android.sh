@@ -10,19 +10,23 @@ set -euo pipefail
 # 5) APK Pfad ausgeben
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DX_APP_DIR="$ROOT_DIR/target/dx/stalltagebuch/debug/android/app"
+DX_APP_DIR="$ROOT_DIR/target/dx/stalltagebuch/release/android/app"
 APP_SRC_MAIN="$DX_APP_DIR/app/src/main"
 KOTLIN_DIR="$APP_SRC_MAIN/kotlin/dev/dioxus/main"
 RES_XML_DIR="$APP_SRC_MAIN/res/xml"
 GRADLE_FILE="$DX_APP_DIR/app/build.gradle.kts"
-APK_OUT="$DX_APP_DIR/app/build/outputs/apk/debug/app-debug.apk"
+APK_OUT_UNSIGNED="$DX_APP_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
+APK_OUT_ALIGNED="$DX_APP_DIR/app/build/outputs/apk/release/app-release-unsigned-aligned.apk"
+APK_OUT_SIGNED="$DX_APP_DIR/app/build/outputs/apk/release/app-release-signed.apk"
+ZIPALIGN="/home/dietrich/Android/Sdk/build-tools/36.1.0/zipalign"
+APKSIGNER="/home/dietrich/Android/Sdk/build-tools/36.1.0/apksigner"
 
 # 1) Dioxus Build (vorher Altlasten entfernen, damit dx build nicht an einem alten BuildConfig-Alias scheitert)
-echo "[1/5] Clean alte Android-Ausgabe und dx build --platform android --target aarch64-linux-android"
+echo "[1/5] Clean alte Android-Ausgabe und dx build --platform android --target aarch64-linux-android --release"
 rm -rf "$DX_APP_DIR" || true
 # Setze den korrekten Linker für Android ARM64
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="/home/dietrich/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
-dx build --platform android --target aarch64-linux-android
+dx build --platform android --target aarch64-linux-android --release
 
 # 2) Dateien kopieren
 echo "[2/5] Kopiere Custom-Dateien"
@@ -31,6 +35,7 @@ cp "$ROOT_DIR/android/MainActivity.kt" "$KOTLIN_DIR/MainActivity.kt"
 cp "$ROOT_DIR/android/AndroidManifest.xml" "$APP_SRC_MAIN/AndroidManifest.xml"
 cp "$ROOT_DIR/android/res/xml/file_paths.xml" "$RES_XML_DIR/file_paths.xml"
 cp "$ROOT_DIR/android/res/xml/network_security_config.xml" "$RES_XML_DIR/network_security_config.xml"
+cp "$ROOT_DIR/android/proguard-rules.pro" "$DX_APP_DIR/app/proguard-rules.pro"
 
 # BuildConfig typealias, damit Logger.kt (dev.dioxus.main) auf das App-BuildConfig zugreifen kann
 cat > "$KOTLIN_DIR/BuildConfig.kt" <<'EOF'
@@ -64,8 +69,8 @@ if [[ -f "$GRADLE_FILE" ]]; then
   # Füge JvmTarget Import hinzu
   sed -i '1i import org.jetbrains.kotlin.gradle.dsl.JvmTarget' "$GRADLE_FILE"
   
-  # Füge Java 17 compileOptions und packaging nach defaultConfig hinzu
-  sed -i '/defaultConfig {/,/}/a\    compileOptions {\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17\n    }\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n    buildFeatures {\n        buildConfig = true\n    }' "$GRADLE_FILE"
+  # Füge Java 17 compileOptions, packaging, lint und buildTypes nach defaultConfig hinzu
+  sed -i '/defaultConfig {/,/}/a\    compileOptions {\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17\n    }\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n    buildFeatures {\n        buildConfig = true\n    }\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }\n    buildTypes {\n        release {\n            isMinifyEnabled = true\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")\n        }\n    }' "$GRADLE_FILE"
   
   # Entferne alle java toolchain Blöcke (werden am Ende neu hinzugefügt)
   sed -i '/^java {/,/^}/d' "$GRADLE_FILE"
@@ -85,15 +90,36 @@ if [[ -f "$GRADLE_PROPERTIES" ]]; then
 fi
 
 # 5) Gradle Build
-echo "[5/5] Gradle assembleDebug"
+echo "[5/7] Gradle assembleRelease"
 cd "$DX_APP_DIR"
-./gradlew clean assembleDebug --warning-mode all
+./gradlew clean assembleRelease --warning-mode all
 
-# 6) Ergebnis
-if [[ -f "$APK_OUT" ]]; then
-  echo "[6/6] APK gebaut: $APK_OUT"
-  echo "Hinweis: Prüfen auf MainActivity im APK: unzip -l \"$APK_OUT\" | grep -i mainactivity"
+# 6) APK ausrichten
+if [[ -f "$APK_OUT_UNSIGNED" ]]; then
+  echo "[6/7] APK ausrichten mit zipalign"
+  "$ZIPALIGN" -v -p 4 "$APK_OUT_UNSIGNED" "$APK_OUT_ALIGNED"
 else
-  echo "Fehler: APK nicht gefunden unter $APK_OUT" >&2
+  echo "Fehler: Unsigned APK nicht gefunden unter $APK_OUT_UNSIGNED" >&2
+  exit 1
+fi
+
+# 7) APK signieren
+if [[ -f "$APK_OUT_ALIGNED" ]]; then
+  echo "[7/7] APK signieren mit apksigner"
+  "$APKSIGNER" sign --ks ~/.android/debug.keystore --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$APK_OUT_SIGNED" "$APK_OUT_ALIGNED"
+else
+  echo "Fehler: Aligned APK nicht gefunden unter $APK_OUT_ALIGNED" >&2
+  exit 1
+fi
+
+# 8) Ergebnis
+if [[ -f "$APK_OUT_SIGNED" ]]; then
+  echo ""
+  echo "✓ APK erfolgreich gebaut und signiert: $APK_OUT_SIGNED"
+  echo ""
+  echo "Installation mit:"
+  echo "  adb install -r $APK_OUT_SIGNED"
+else
+  echo "Fehler: Signiertes APK nicht gefunden unter $APK_OUT_SIGNED" >&2
   exit 1
 fi

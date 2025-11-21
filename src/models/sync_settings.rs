@@ -12,6 +12,7 @@ pub struct SyncSettings {
     pub last_sync: Option<String>,
     pub device_id: Option<String>,
     pub format_version: i32,
+    pub initial_upload_done: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -33,6 +34,7 @@ impl SyncSettings {
             last_sync: None,
             device_id: None,
             format_version: 2,
+            initial_upload_done: false,
             created_at: String::new(),
             updated_at: String::new(),
         }

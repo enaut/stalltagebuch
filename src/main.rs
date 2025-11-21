@@ -20,7 +20,32 @@ const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 fn main() {
+    init_logger();
+    log::info!("App start: Stalltagebuch wird gestartet");
     dioxus::launch(App);
+}
+
+#[inline]
+fn init_logger() {
+    #[cfg(target_os = "android")]
+    {
+        use android_logger::Config;
+        use log::LevelFilter;
+        // Single-init logger to Android logcat with app tag
+        android_logger::init_once(
+            Config::default()
+                .with_max_level(LevelFilter::Debug)
+                .with_tag("stalltagebuch"),
+        );
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = env_logger::builder()
+            .filter_level(log::LevelFilter::Debug)
+            .format_timestamp_millis()
+            .try_init();
+    }
 }
 
 /// Screen navigation for the app
@@ -31,8 +56,14 @@ pub enum Screen {
     ProfileDetail(String),
     ProfileEdit(String),
     AddProfile,
-    EventAdd { quail_id: String, quail_name: String },
-    EventEdit { event_id: String, quail_id: String },
+    EventAdd {
+        quail_id: String,
+        quail_name: String,
+    },
+    EventEdit {
+        event_id: String,
+        quail_id: String,
+    },
     EggTracking(Option<String>), // Date in YYYY-MM-DD format
     EggHistory,
     Statistics,
@@ -45,20 +76,16 @@ fn App() -> Element {
     use_init_i18n(i18n::init_i18n);
 
     // Auto-start background sync if configured
-    use_effect(move || {
-        match database::init_database() {
-            Ok(conn) => {
-                match services::sync_service::load_sync_settings(&conn) {
-                    Ok(Some(settings)) if settings.enabled => {
-                        eprintln!("Auto-starting background sync");
-                        services::background_sync::start_background_sync();
-                    }
-                    _ => {}
-                }
+    use_effect(move || match database::init_database() {
+        Ok(conn) => match services::sync_service::load_sync_settings(&conn) {
+            Ok(Some(settings)) if settings.enabled => {
+                log::info!("Auto-starting background sync");
+                services::background_sync::start_background_sync();
             }
-            Err(e) => {
-                eprintln!("Failed to check sync settings: {}", e);
-            }
+            _ => {}
+        },
+        Err(e) => {
+            log::error!("Failed to check sync settings: {}", e);
         }
     });
 
@@ -96,11 +123,7 @@ fn App() -> Element {
                         }
                     }
                     Screen::EventEdit { event_id, quail_id } => rsx! {
-                        EventEditScreen {
-                            event_id,
-                            quail_id,
-                            on_navigate: move |s| current_screen.set(s),
-                        }
+                        EventEditScreen { event_id, quail_id, on_navigate: move |s| current_screen.set(s) }
                     },
                     Screen::EggTracking(date_opt) => rsx! {
                         EggTrackingScreen { date: date_opt, on_navigate: move |s| current_screen.set(s) }

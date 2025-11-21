@@ -17,6 +17,7 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
     let mut show_delete_confirm = use_signal(|| false);
     let mut error = use_signal(|| String::new());
     let mut success = use_signal(|| false);
+    let mut saving = use_signal(|| false);
 
     // Load profile and photos
     let quail_id_for_load = quail_id.clone();
@@ -50,7 +51,7 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                             photos.set(photo_list);
                         }
                         Err(e) => {
-                            eprintln!("{}: {}", t!("error-load-photos-failed"), e);
+                            log::error!("{}: {}", t!("error-load-photos-failed"), e);
                             // Failed to load photos
                         }
                     }
@@ -68,6 +69,8 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
             error.set(t!("error-name-required")); // Name is required
             return;
         }
+
+        saving.set(true);
 
         if let Some(mut updated_profile) = profile() {
             updated_profile.name = name().trim().to_string();
@@ -92,7 +95,12 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
             spawn(async move {
                 match database::init_database() {
                     Ok(conn) => {
-                        match services::profile_service::update_profile(&conn, &updated_profile_clone).await {
+                        match services::profile_service::update_profile(
+                            &conn,
+                            &updated_profile_clone,
+                        )
+                        .await
+                        {
                             Ok(_) => {
                                 // Aktualisiere Profilbild falls ausgewählt
                                 if let Some(photo_uuid_str) = selected_photo {
@@ -104,21 +112,24 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                                             &conn,
                                             &quail_uuid,
                                             &photo_uuid,
-                                        );
+                                        )
+                                        .await;
                                     }
                                 }
                                 success.set(true);
+                                saving.set(false);
                                 // Navigate back immediately
                                 on_navigate.call(Screen::ProfileDetail(quail_id_clone.clone()));
                             }
                             Err(e) => {
                                 error.set(format!("{}: {}", t!("error-save-failed"), e));
-                                // Failed to save
+                                saving.set(false);
                             }
                         }
                     }
                     Err(e) => {
                         error.set(format!("{}: {}", t!("error-database"), e)); // Database error
+                        saving.set(false);
                     }
                 }
             });
@@ -355,12 +366,19 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                     button {
                         class: "btn-success",
                         style: "flex: 1; padding: 14px; font-size: 16px; font-weight: 600;",
+                        disabled: saving(),
                         onclick: move |_| handle_submit(),
-                        "✓ "
-                        {t!("action-save")}
+                        if saving() {
+                            "⏳ "
+                            {t!("action-saving")}
+                        } else {
+                            "✓ "
+                            {t!("action-save")}
+                        }
                     }
                     button {
                         style: "flex: 1; padding: 14px; background: #e0e0e0; color: #666; font-size: 16px; font-weight: 600;",
+                        disabled: saving(),
                         onclick: move |_| on_navigate.call(Screen::ProfileDetail(quail_id_for_cancel.clone())),
                         "✕ "
                         {t!("action-cancel")}

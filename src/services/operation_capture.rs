@@ -14,49 +14,62 @@ pub async fn capture_quail_create(
 ) -> Result<(), AppError> {
     let device_id = upload_service::get_device_id(conn)?;
 
-    let mut operations = vec![
-        crdt_service::Operation::new(
-            "quail".to_string(),
-            quail_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
-                field: "name".to_string(),
-                value: serde_json::Value::String(name.to_string()),
-            },
-        ),
-        crdt_service::Operation::new(
-            "quail".to_string(),
-            quail_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
-                field: "gender".to_string(),
-                value: serde_json::Value::String(gender.to_string()),
-            },
-        ),
-    ];
+    // Create clock and tick for each operation to ensure different logical_clock values
+    let mut clock = crdt_service::HybridLogicalClock::new(device_id.clone());
+    let mut operations = Vec::new();
+    
+    // Operation 1: name
+    clock.tick();
+    operations.push(crdt_service::Operation {
+        op_id: ulid::Ulid::new().to_string(),
+        entity_type: "quail".to_string(),
+        entity_id: quail_id.to_string(),
+        clock: clock.clone(),
+        op: crdt_service::CrdtOp::LwwSet {
+            field: "name".to_string(),
+            value: serde_json::Value::String(name.to_string()),
+        },
+    });
+    
+    // Operation 2: gender
+    clock.tick();
+    operations.push(crdt_service::Operation {
+        op_id: ulid::Ulid::new().to_string(),
+        entity_type: "quail".to_string(),
+        entity_id: quail_id.to_string(),
+        clock: clock.clone(),
+        op: crdt_service::CrdtOp::LwwSet {
+            field: "gender".to_string(),
+            value: serde_json::Value::String(gender.to_string()),
+        },
+    });
 
     if let Some(color) = ring_color {
-        operations.push(crdt_service::Operation::new(
-            "quail".to_string(),
-            quail_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
+        clock.tick();
+        operations.push(crdt_service::Operation {
+            op_id: ulid::Ulid::new().to_string(),
+            entity_type: "quail".to_string(),
+            entity_id: quail_id.to_string(),
+            clock: clock.clone(),
+            op: crdt_service::CrdtOp::LwwSet {
                 field: "ring_color".to_string(),
                 value: serde_json::Value::String(color.to_string()),
             },
-        ));
+        });
     }
 
     if let Some(photo) = profile_photo {
-        operations.push(crdt_service::Operation::new(
-            "quail".to_string(),
-            quail_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
+        clock.tick();
+        operations.push(crdt_service::Operation {
+            op_id: ulid::Ulid::new().to_string(),
+            entity_type: "quail".to_string(),
+            entity_id: quail_id.to_string(),
+            clock: clock.clone(),
+            op: crdt_service::CrdtOp::LwwSet {
                 field: "profile_photo".to_string(),
                 value: serde_json::Value::String(photo.to_string()),
             },
-        ));
+        });
     }
 
     upload_service::upload_ops_batch(conn, operations).await?;
@@ -115,46 +128,61 @@ pub async fn capture_event_create(
 ) -> Result<(), AppError> {
     let device_id = upload_service::get_device_id(conn)?;
 
-    let mut operations = vec![
-        crdt_service::Operation::new(
-            "event".to_string(),
-            event_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
-                field: "quail_id".to_string(),
-                value: serde_json::Value::String(quail_id.to_string()),
-            },
-        ),
-        crdt_service::Operation::new(
-            "event".to_string(),
-            event_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
-                field: "event_type".to_string(),
-                value: serde_json::Value::String(event_type.to_string()),
-            },
-        ),
-        crdt_service::Operation::new(
-            "event".to_string(),
-            event_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
-                field: "event_date".to_string(),
-                value: serde_json::Value::String(event_date.to_string()),
-            },
-        ),
-    ];
+    // Create clock and tick for each operation to ensure different logical_clock values
+    let mut clock = crdt_service::HybridLogicalClock::new(device_id.clone());
+    let mut operations = Vec::new();
+    
+    // Operation 1: quail_id
+    clock.tick();
+    operations.push(crdt_service::Operation {
+        op_id: ulid::Ulid::new().to_string(),
+        entity_type: "event".to_string(),
+        entity_id: event_id.to_string(),
+        clock: clock.clone(),
+        op: crdt_service::CrdtOp::LwwSet {
+            field: "quail_id".to_string(),
+            value: serde_json::Value::String(quail_id.to_string()),
+        },
+    });
+    
+    // Operation 2: event_type
+    clock.tick();
+    operations.push(crdt_service::Operation {
+        op_id: ulid::Ulid::new().to_string(),
+        entity_type: "event".to_string(),
+        entity_id: event_id.to_string(),
+        clock: clock.clone(),
+        op: crdt_service::CrdtOp::LwwSet {
+            field: "event_type".to_string(),
+            value: serde_json::Value::String(event_type.to_string()),
+        },
+    });
+    
+    // Operation 3: event_date
+    clock.tick();
+    operations.push(crdt_service::Operation {
+        op_id: ulid::Ulid::new().to_string(),
+        entity_type: "event".to_string(),
+        entity_id: event_id.to_string(),
+        clock: clock.clone(),
+        op: crdt_service::CrdtOp::LwwSet {
+            field: "event_date".to_string(),
+            value: serde_json::Value::String(event_date.to_string()),
+        },
+    });
 
     if let Some(notes_text) = notes {
-        operations.push(crdt_service::Operation::new(
-            "event".to_string(),
-            event_id.to_string(),
-            device_id,
-            crdt_service::CrdtOp::LwwSet {
+        clock.tick();
+        operations.push(crdt_service::Operation {
+            op_id: ulid::Ulid::new().to_string(),
+            entity_type: "event".to_string(),
+            entity_id: event_id.to_string(),
+            clock: clock.clone(),
+            op: crdt_service::CrdtOp::LwwSet {
                 field: "notes".to_string(),
                 value: serde_json::Value::String(notes_text.to_string()),
             },
-        ));
+        });
     }
 
     upload_service::upload_ops_batch(conn, operations).await?;
@@ -213,50 +241,63 @@ pub async fn capture_photo_create(
 ) -> Result<(), AppError> {
     let device_id = upload_service::get_device_id(conn)?;
 
-    let mut operations = vec![crdt_service::Operation::new(
-        "photo".to_string(),
-        photo_id.to_string(),
-        device_id.clone(),
-        crdt_service::CrdtOp::LwwSet {
+    // Create clock and tick for each operation to ensure different logical_clock values
+    let mut clock = crdt_service::HybridLogicalClock::new(device_id.clone());
+    let mut operations = Vec::new();
+    
+    // Operation 1: relative_path
+    clock.tick();
+    operations.push(crdt_service::Operation {
+        op_id: ulid::Ulid::new().to_string(),
+        entity_type: "photo".to_string(),
+        entity_id: photo_id.to_string(),
+        clock: clock.clone(),
+        op: crdt_service::CrdtOp::LwwSet {
             field: "relative_path".to_string(),
             value: serde_json::Value::String(relative_path.to_string()),
         },
-    )];
+    });
 
     if let Some(qid) = quail_id {
-        operations.push(crdt_service::Operation::new(
-            "photo".to_string(),
-            photo_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
+        clock.tick();
+        operations.push(crdt_service::Operation {
+            op_id: ulid::Ulid::new().to_string(),
+            entity_type: "photo".to_string(),
+            entity_id: photo_id.to_string(),
+            clock: clock.clone(),
+            op: crdt_service::CrdtOp::LwwSet {
                 field: "quail_id".to_string(),
                 value: serde_json::Value::String(qid.to_string()),
             },
-        ));
+        });
     }
 
     if let Some(eid) = event_id {
-        operations.push(crdt_service::Operation::new(
-            "photo".to_string(),
-            photo_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
+        clock.tick();
+        operations.push(crdt_service::Operation {
+            op_id: ulid::Ulid::new().to_string(),
+            entity_type: "photo".to_string(),
+            entity_id: photo_id.to_string(),
+            clock: clock.clone(),
+            op: crdt_service::CrdtOp::LwwSet {
                 field: "event_id".to_string(),
                 value: serde_json::Value::String(eid.to_string()),
             },
-        ));
+        });
     }
 
     if let Some(thumb) = relative_thumb {
-        operations.push(crdt_service::Operation::new(
-            "photo".to_string(),
-            photo_id.to_string(),
-            device_id,
-            crdt_service::CrdtOp::LwwSet {
+        clock.tick();
+        operations.push(crdt_service::Operation {
+            op_id: ulid::Ulid::new().to_string(),
+            entity_type: "photo".to_string(),
+            entity_id: photo_id.to_string(),
+            clock: clock.clone(),
+            op: crdt_service::CrdtOp::LwwSet {
                 field: "relative_thumb".to_string(),
                 value: serde_json::Value::String(thumb.to_string()),
             },
-        ));
+        });
     }
 
     upload_service::upload_ops_batch(conn, operations).await?;
@@ -288,26 +329,35 @@ pub async fn capture_egg_create(
     count: i32,
 ) -> Result<(), AppError> {
     let device_id = upload_service::get_device_id(conn)?;
+    
+    // Shared HLC für beide Operationen, damit sie unterschiedliche logical_counter haben
+    let mut clock = crate::services::crdt_service::HybridLogicalClock::new(device_id.clone());
+    clock.tick();
+    let op1_clock = clock.clone();
+    clock.tick();
+    let op2_clock = clock.clone();
 
     let operations = vec![
-        crdt_service::Operation::new(
-            "egg".to_string(),
-            egg_id.to_string(),
-            device_id.clone(),
-            crdt_service::CrdtOp::LwwSet {
+        crdt_service::Operation {
+            op_id: ulid::Ulid::new().to_string(),
+            entity_type: "egg".to_string(),
+            entity_id: egg_id.to_string(),
+            clock: op1_clock,
+            op: crdt_service::CrdtOp::LwwSet {
                 field: "record_date".to_string(),
                 value: serde_json::Value::String(date.to_string()),
             },
-        ),
-        crdt_service::Operation::new(
-            "egg".to_string(),
-            egg_id.to_string(),
-            device_id,
-            crdt_service::CrdtOp::LwwSet {
+        },
+        crdt_service::Operation {
+            op_id: ulid::Ulid::new().to_string(),
+            entity_type: "egg".to_string(),
+            entity_id: egg_id.to_string(),
+            clock: op2_clock,
+            op: crdt_service::CrdtOp::LwwSet {
                 field: "total_eggs".to_string(),
                 value: serde_json::Value::Number(count.into()),
             },
-        ),
+        },
     ];
 
     upload_service::upload_ops_batch(conn, operations).await?;

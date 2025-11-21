@@ -22,6 +22,18 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
     #[cfg(target_os = "android")]
     let quail_id_for_camera = quail_id.clone();
 
+    // Retry failed downloads beim Mount
+    use_effect(move || {
+        spawn(async move {
+            if let Ok(conn) = database::init_database() {
+                if let Err(e) = crate::services::photo_service::retry_failed_downloads(&conn).await
+                {
+                    log::warn!("Failed to retry photo downloads: {}", e);
+                }
+            }
+        });
+    });
+
     // Alle Bilder der Wachtel laden
     let quail_id_for_photos = quail_id.clone();
     use_effect(move || {
@@ -52,7 +64,7 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                 // Load events
                 match event_service::get_events_for_quail(&conn, &uuid) {
                     Ok(evts) => events.set(evts),
-                    Err(e) => eprintln!("{}: {}", t!("error-load-events-failed"), e), // Failed to load events
+                    Err(e) => log::error!("{}: {}", t!("error-load-events-failed"), e), // Failed to load events
                 }
             }
         }
@@ -172,17 +184,13 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                                     let mut first = true;
                                                     for pth in paths {
                                                         let path_str = pth.to_string_lossy().to_string();
-                                                        let thumbnail_opt = crate::image_processing::create_thumbnail(
-                                                                &path_str,
-                                                            )
-                                                            .ok();
                                                         let _is_profile = first && photos().is_empty();
                                                         if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
                                                             match crate::services::photo_service::add_quail_photo(
                                                                 &conn,
                                                                 uuid,
                                                                 path_str,
-                                                                thumbnail_opt,
+                                                                None, // Thumbnails werden im Service erstellt
                                                             ).await {
                                                                 Ok(_) => {}
                                                                 Err(e) => {
@@ -242,16 +250,12 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                             Ok(path) => {
                                                 if let Ok(conn) = database::init_database() {
                                                     let path_str = path.to_string_lossy().to_string();
-                                                    let thumbnail_opt = crate::image_processing::create_thumbnail(
-                                                            &path_str,
-                                                        )
-                                                        .ok();
                                                     if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
                                                         match crate::services::photo_service::add_quail_photo(
                                                             &conn,
                                                             uuid,
                                                             path_str,
-                                                            thumbnail_opt,
+                                                            None, // Thumbnails werden im Service erstellt
                                                         ).await {
                                                             Ok(_) => {
                                                                 if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(

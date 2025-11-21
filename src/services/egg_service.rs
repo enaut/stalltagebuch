@@ -23,7 +23,8 @@ pub async fn add_egg_record(conn: &Connection, record: &EggRecord) -> Result<Uui
         &record.uuid.to_string(),
         &date_str,
         record.total_eggs,
-    ).await?;
+    )
+    .await?;
 
     Ok(record.uuid)
 }
@@ -33,7 +34,7 @@ pub fn get_egg_record(conn: &Connection, date: &str) -> Result<EggRecord, AppErr
     let mut stmt = conn.prepare(
         "SELECT uuid, record_date, total_eggs, notes 
          FROM egg_records 
-         WHERE record_date = ?1",
+         WHERE record_date = ?1 AND deleted = 0",
     )?;
 
     let record = stmt.query_row(params![date], |row| EggRecord::try_from(row))?;
@@ -64,7 +65,8 @@ pub async fn update_egg_record(conn: &Connection, record: &EggRecord) -> Result<
         conn,
         &record.uuid.to_string(),
         record.total_eggs,
-    ).await?;
+    )
+    .await?;
 
     Ok(())
 }
@@ -103,24 +105,25 @@ pub fn list_egg_records(
         (Some(_), Some(_)) => {
             "SELECT uuid, record_date, total_eggs, notes 
              FROM egg_records 
-             WHERE record_date BETWEEN ?1 AND ?2 
+             WHERE record_date BETWEEN ?1 AND ?2 AND deleted = 0
              ORDER BY record_date DESC"
         }
         (Some(_), None) => {
             "SELECT uuid, record_date, total_eggs, notes 
              FROM egg_records 
-             WHERE record_date >= ?1 
+             WHERE record_date >= ?1 AND deleted = 0
              ORDER BY record_date DESC"
         }
         (None, Some(_)) => {
             "SELECT uuid, record_date, total_eggs, notes 
              FROM egg_records 
-             WHERE record_date <= ?1 
+             WHERE record_date <= ?1 AND deleted = 0
              ORDER BY record_date DESC"
         }
         (None, None) => {
             "SELECT uuid, record_date, total_eggs, notes 
              FROM egg_records 
+             WHERE deleted = 0
              ORDER BY record_date DESC"
         }
     };
@@ -159,14 +162,14 @@ mod tests {
     use super::*;
     use crate::database;
 
-    #[test]
-    fn test_add_and_get_egg_record() {
+    #[tokio::test]
+    async fn test_add_and_get_egg_record() {
         let conn = Connection::open_in_memory().unwrap();
         database::schema::init_schema(&conn).unwrap();
 
         let date = chrono::Local::now().date_naive();
         let record = EggRecord::new(date, 12);
-        let id = add_egg_record(&conn, &record).unwrap();
+        let id = add_egg_record(&conn, &record).await.unwrap();
         assert!(!id.is_nil());
 
         let date_str = record.record_date.format("%Y-%m-%d").to_string();
@@ -174,18 +177,18 @@ mod tests {
         assert_eq!(loaded.total_eggs, 12);
     }
 
-    #[test]
-    fn test_update_egg_record() {
+    #[tokio::test]
+    async fn test_update_egg_record() {
         let conn = Connection::open_in_memory().unwrap();
         database::schema::init_schema(&conn).unwrap();
 
         let date = chrono::Local::now().date_naive();
         let mut record = EggRecord::new(date, 10);
-        add_egg_record(&conn, &record).unwrap();
+        add_egg_record(&conn, &record).await.unwrap();
 
         record.total_eggs = 15;
         record.notes = Some("Aktualisiert".to_string());
-        update_egg_record(&conn, &record).unwrap();
+        update_egg_record(&conn, &record).await.unwrap();
 
         let date_str = record.record_date.format("%Y-%m-%d").to_string();
         let loaded = get_egg_record(&conn, &date_str).unwrap();
@@ -193,24 +196,24 @@ mod tests {
         assert_eq!(loaded.notes, Some("Aktualisiert".to_string()));
     }
 
-    #[test]
-    fn test_delete_egg_record() {
+    #[tokio::test]
+    async fn test_delete_egg_record() {
         let conn = Connection::open_in_memory().unwrap();
         database::schema::init_schema(&conn).unwrap();
 
         let date = chrono::Local::now().date_naive();
         let record = EggRecord::new(date, 8);
-        add_egg_record(&conn, &record).unwrap();
+        add_egg_record(&conn, &record).await.unwrap();
 
         let date_str = record.record_date.format("%Y-%m-%d").to_string();
-        delete_egg_record(&conn, &date_str).unwrap();
+        delete_egg_record(&conn, &date_str).await.unwrap();
 
         let result = get_egg_record(&conn, &date_str);
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_list_egg_records() {
+    #[tokio::test]
+    async fn test_list_egg_records() {
         let conn = Connection::open_in_memory().unwrap();
         database::schema::init_schema(&conn).unwrap();
 
@@ -218,7 +221,7 @@ mod tests {
         for i in 0..5 {
             let date = chrono::NaiveDate::from_ymd_opt(2025, 11, 5 + i).unwrap();
             let record = EggRecord::new(date, (i + 1) as i32 * 2);
-            add_egg_record(&conn, &record).unwrap();
+            add_egg_record(&conn, &record).await.unwrap();
         }
 
         let records = list_egg_records(&conn, None, None).unwrap();

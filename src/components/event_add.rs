@@ -22,6 +22,7 @@ pub fn EventAdd(
     let mut notes = use_signal(|| String::new());
     let photos = use_signal(|| Vec::<String>::new());
     let error_message = use_signal(|| None::<String>);
+    let saving = use_signal(|| false);
 
     let quail_id_for_save = quail_id.clone();
     let error_message_signal = error_message.clone();
@@ -29,13 +30,16 @@ pub fn EventAdd(
     let notes_signal = notes.clone();
     let event_type_signal = event_type.clone();
     let photos_signal = photos.clone();
+    let mut saving_signal = saving.clone();
     let on_save = move |_| {
+        saving_signal.set(true);
         let quail_id = quail_id_for_save.clone();
         let mut error_message = error_message_signal.clone();
         let event_date = event_date_signal.clone();
         let notes = notes_signal.clone();
         let event_type = event_type_signal.clone();
         let photos = photos_signal.clone();
+        let mut saving_signal = saving_signal.clone();
         spawn(async move {
             match database::init_database() {
                 Ok(conn) => {
@@ -44,6 +48,7 @@ pub fn EventAdd(
                         Ok(date) => date,
                         Err(_) => {
                             error_message.set(Some(t!("error-invalid-date")));
+                            saving_signal.set(false);
                             return;
                         }
                     };
@@ -61,30 +66,34 @@ pub fn EventAdd(
                             event_type(),
                             parsed_date,
                             notes_opt,
-                        ).await {
+                        )
+                        .await
+                        {
                             Ok(event_id) => {
                                 // Save photos for this event
                                 for photo_path in photos() {
-                                    let thumbnail_opt =
-                                        crate::image_processing::create_thumbnail(&photo_path).ok();
                                     let _ = crate::services::photo_service::add_event_photo(
                                         &conn,
                                         event_id,
                                         photo_path,
-                                        thumbnail_opt,
-                                    ).await;
+                                        None, // Thumbnails werden im Service erstellt
+                                    )
+                                    .await;
                                 }
+                                saving_signal.set(false);
                                 on_navigate.call(Screen::ProfileDetail(quail_id.clone()));
                             }
                             Err(e) => {
                                 error_message
                                     .set(Some(t!("error-event-save", error: e.to_string())));
+                                saving_signal.set(false);
                             }
                         }
                     }
                 }
                 Err(e) => {
                     error_message.set(Some(t!("error-database-detail", error: e.to_string())));
+                    saving_signal.set(false);
                 }
             }
         });
@@ -156,12 +165,19 @@ pub fn EventAdd(
             div { class: "button-group", style: "display: flex; gap: 10px;",
 
                 button {
+                    disabled: saving(),
                     onclick: on_save,
                     style: "flex: 1; padding: 12px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer;",
-                    { t!("action-save") }
+                    if saving() {
+                        "⏳ "
+                        {t!("action-saving")}
+                    } else {
+                        { t!("action-save") }
+                    }
                 }
 
                 button {
+                    disabled: saving(),
                     onclick: {
                         let quail_id_for_cancel = quail_id.clone();
                         move |_| on_navigate.call(Screen::ProfileDetail(quail_id_for_cancel.clone()))

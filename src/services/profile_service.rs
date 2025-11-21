@@ -27,8 +27,13 @@ pub async fn create_profile(conn: &Connection, quail: &Quail) -> Result<Uuid, Ap
         &quail.name,
         quail.gender.as_str(),
         quail.ring_color.as_ref().map(|c| c.as_str()),
-        quail.profile_photo.as_ref().map(|u| u.to_string()).as_deref(),
-    ).await?;
+        quail
+            .profile_photo
+            .as_ref()
+            .map(|u| u.to_string())
+            .as_deref(),
+    )
+    .await?;
 
     Ok(quail.uuid)
 }
@@ -79,20 +84,23 @@ pub async fn update_profile(conn: &Connection, quail: &Quail) -> Result<(), AppE
         &quail_id,
         "name",
         serde_json::Value::String(quail.name.clone()),
-    ).await?;
+    )
+    .await?;
     crate::services::operation_capture::capture_quail_update(
         conn,
         &quail_id,
         "gender",
         serde_json::Value::String(quail.gender.as_str().to_string()),
-    ).await?;
+    )
+    .await?;
     if let Some(color) = &quail.ring_color {
         crate::services::operation_capture::capture_quail_update(
             conn,
             &quail_id,
             "ring_color",
             serde_json::Value::String(color.as_str().to_string()),
-        ).await?;
+        )
+        .await?;
     }
     if let Some(photo) = &quail.profile_photo {
         crate::services::operation_capture::capture_quail_update(
@@ -100,7 +108,8 @@ pub async fn update_profile(conn: &Connection, quail: &Quail) -> Result<(), AppE
             &quail_id,
             "profile_photo",
             serde_json::Value::String(photo.to_string()),
-        ).await?;
+        )
+        .await?;
     }
 
     Ok(())
@@ -198,13 +207,13 @@ mod tests {
         conn
     }
 
-    #[test]
-    fn test_create_and_get_profile() {
+    #[tokio::test]
+    async fn test_create_and_get_profile() {
         let conn = setup_test_db();
         let mut quail = Quail::new("Testwachtel".to_string());
         quail.gender = crate::models::Gender::Female;
 
-        let uuid = create_profile(&conn, &quail).unwrap();
+        let uuid = create_profile(&conn, &quail).await.unwrap();
         assert_eq!(uuid, quail.uuid);
 
         let loaded = get_profile(&conn, &uuid).unwrap();
@@ -212,40 +221,46 @@ mod tests {
         assert_eq!(loaded.gender, crate::models::Gender::Female);
     }
 
-    #[test]
-    fn test_update_profile() {
+    #[tokio::test]
+    async fn test_update_profile() {
         let conn = setup_test_db();
         let mut quail = Quail::new("Original".to_string());
 
-        let id = create_profile(&conn, &quail).unwrap();
+        let id = create_profile(&conn, &quail).await.unwrap();
         quail.uuid = id;
         quail.name = "Updated".to_string();
 
-        update_profile(&conn, &quail).unwrap();
+        update_profile(&conn, &quail).await.unwrap();
 
         let loaded = get_profile(&conn, &id).unwrap();
         assert_eq!(loaded.name, "Updated");
     }
 
-    #[test]
-    fn test_delete_profile() {
+    #[tokio::test]
+    async fn test_delete_profile() {
         let conn = setup_test_db();
         let quail = Quail::new("ToDelete".to_string());
 
-        let uuid = create_profile(&conn, &quail).unwrap();
-        delete_profile(&conn, &uuid).unwrap();
+        let uuid = create_profile(&conn, &quail).await.unwrap();
+        delete_profile(&conn, &uuid).await.unwrap();
 
         let result = get_profile(&conn, &uuid);
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_list_profiles() {
+    #[tokio::test]
+    async fn test_list_profiles() {
         let conn = setup_test_db();
 
-        create_profile(&conn, &Quail::new("Alice".to_string())).unwrap();
-        create_profile(&conn, &Quail::new("Bob".to_string())).unwrap();
-        create_profile(&conn, &Quail::new("Charlie".to_string())).unwrap();
+        create_profile(&conn, &Quail::new("Alice".to_string()))
+            .await
+            .unwrap();
+        create_profile(&conn, &Quail::new("Bob".to_string()))
+            .await
+            .unwrap();
+        create_profile(&conn, &Quail::new("Charlie".to_string()))
+            .await
+            .unwrap();
 
         let all = list_profiles(&conn, None).unwrap();
         assert_eq!(all.len(), 3);

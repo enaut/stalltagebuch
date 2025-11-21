@@ -16,6 +16,7 @@ pub fn AddProfileScreen(on_navigate: EventHandler<Screen>) -> Element {
     let mut uploading = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let mut success = use_signal(|| false);
+    let mut saving = use_signal(|| false);
 
     let mut handle_submit = move || {
         error.set(None);
@@ -27,6 +28,8 @@ pub fn AddProfileScreen(on_navigate: EventHandler<Screen>) -> Element {
             error.set(Some(t!("error-name-required"))); // Name cannot be empty
             return;
         }
+
+        saving.set(true);
 
         let mut quail = Quail::new(name_trimmed.to_string());
 
@@ -52,38 +55,42 @@ pub fn AddProfileScreen(on_navigate: EventHandler<Screen>) -> Element {
                             // Speichere Profilfoto falls vorhanden
                             if let Some(path) = photo_path() {
                                 let path_str = path.to_string_lossy().to_string();
-                                let thumbnail_opt =
-                                    crate::image_processing::create_thumbnail(&path_str).ok();
                                 match crate::services::photo_service::add_quail_photo(
-                                    &conn,
-                                    quail_id,
-                                    path_str,
-                                    thumbnail_opt,
-                                ).await {
+                                    &conn, quail_id, path_str,
+                                    None, // Thumbnails werden im Service erstellt
+                                )
+                                .await
+                                {
                                     Ok(photo_uuid) => {
                                         // Setze dieses Foto als Profilbild
                                         let _ = crate::services::photo_service::set_profile_photo(
                                             &conn,
                                             &quail_id,
                                             &photo_uuid,
-                                        );
+                                        )
+                                        .await;
                                     }
                                     Err(e) => {
-                                        eprintln!("Fehler beim Hinzufügen des Profilfotos: {}", e);
+                                        log::error!(
+                                            "Fehler beim Hinzufügen des Profilfotos: {}",
+                                            e
+                                        );
                                     }
                                 }
                             }
                             success.set(true);
+                            saving.set(false);
                             on_navigate.call(Screen::ProfileList);
                         }
                         Err(e) => {
                             error.set(Some(format!("{}: {}", t!("error-save"), e)));
-                            // Save error
+                            saving.set(false);
                         }
                     }
                 }
                 Err(e) => {
-                    error.set(Some(t!("error-database", error: e.to_string()))); // Database error
+                    error.set(Some(t!("error-database", error: e.to_string())));
+                    saving.set(false);
                 }
             }
         });
@@ -276,13 +283,20 @@ pub fn AddProfileScreen(on_navigate: EventHandler<Screen>) -> Element {
                     button {
                         class: "btn-primary",
                         style: "flex: 1; padding: 14px;",
+                        disabled: saving(),
                         onclick: move |_| handle_submit(),
-                        "💾 "
-                        {t!("action-save")}
+                        if saving() {
+                            "⏳ "
+                            {t!("action-saving")}
+                        } else {
+                            "💾 "
+                            {t!("action-save")}
+                        }
                     }
                     button {
                         class: "btn-secondary",
                         style: "flex: 1; padding: 14px;",
+                        disabled: saving(),
                         onclick: move |_| on_navigate.call(Screen::ProfileList),
                         "❌ "
                         {t!("action-cancel")}

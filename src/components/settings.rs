@@ -1,10 +1,19 @@
 use crate::database;
 use crate::models::SyncSettings;
+use crate::services::export_import_service::ImportMode;
 use crate::services::sync_service;
 use crate::Screen;
+use chrono::{Local, TimeZone};
 use dioxus::prelude::*;
 use dioxus_i18n::t;
 use serde::{Deserialize, Serialize};
+
+fn format_hms(ts_ms: i64) -> String {
+    match Local.timestamp_millis_opt(ts_ms).single() {
+        Some(dt) => dt.format(&t!("log-time-format")).to_string(), // the format string for the chrono format time.
+        None => String::from("--:--:--"),
+    }
+}
 
 #[derive(Clone, PartialEq)]
 enum NetworkStatus {
@@ -193,6 +202,23 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
     let mut connection_status = use_signal(|| None::<ConnectionStatus>);
     let mut background_sync_running =
         use_signal(|| crate::services::background_sync::is_background_sync_running());
+    // Live Countdown & Log
+    let mut sync_eta = use_signal(|| crate::services::background_sync::next_sync_eta_seconds());
+    let mut sync_log = use_signal(|| crate::services::background_sync::get_sync_log());
+
+    // Ticker Effekt (1s Interval) aktualisiert ETA und Log ohne User-Interaktion
+    use_effect(move || {
+        // Spawn ticker loop (kein Cleanup nötig für einfache 1s Timer)
+        spawn(async move {
+            loop {
+                sync_eta.set(crate::services::background_sync::next_sync_eta_seconds());
+                sync_log.set(crate::services::background_sync::get_sync_log());
+                background_sync_running
+                    .set(crate::services::background_sync::is_background_sync_running());
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        });
+    });
 
     // Load existing settings on mount
     use_effect(move || {
@@ -277,8 +303,10 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
 
             // Create a properly configured HTTP client
             let client = match reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(60))
                 .connect_timeout(std::time::Duration::from_secs(10))
+                .tcp_keepalive(std::time::Duration::from_secs(30))
+                .user_agent("Stalltagebuch/0.1.0")
                 .build()
             {
                 Ok(client) => client,
@@ -292,12 +320,7 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                 }
             };
 
-            match client
-                .post(&url)
-                .header("User-Agent", "Stalltagebuch/0.1.0")
-                .send()
-                .await
-            {
+            match client.post(&url).send().await {
                 Ok(response) => {
                     if response.status().is_success() {
                         match response.json::<LoginFlowInit>().await {
@@ -319,10 +342,15 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                     let poll_client = match reqwest::Client::builder()
                                         .timeout(std::time::Duration::from_secs(30))
                                         .connect_timeout(std::time::Duration::from_secs(10))
+                                        .tcp_keepalive(std::time::Duration::from_secs(30))
+                                        .user_agent("Stalltagebuch/0.1.0")
+                                        .pool_idle_timeout(std::time::Duration::from_secs(90))
+                                        .pool_max_idle_per_host(4)
                                         .build()
                                     {
                                         Ok(client) => client,
                                         Err(e) => {
+                                            log::error!("LoginFlow: HTTP-Client für Polling konnte nicht erstellt werden: {:?}", e);
                                             login_state.set(LoginState::Error(format!(
                                                 "{}: {:?}",
                                                 t!("error-client"),
@@ -334,24 +362,39 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
 
                                     // Small delay to ensure network is ready and user can open browser
                                     #[cfg(not(target_arch = "wasm32"))]
-                                    std::thread::sleep(std::time::Duration::from_millis(500));
+                                    {
+                                        log::debug!(
+                                            "LoginFlow: kurze Wartezeit vor Start des Pollings"
+                                        );
+                                        tokio::time::sleep(std::time::Duration::from_millis(500))
+                                            .await;
+                                    }
                                     #[cfg(target_arch = "wasm32")]
                                     gloo_timers::future::sleep(std::time::Duration::from_millis(
                                         500,
                                     ))
                                     .await;
 
-                                    // Poll up to 60 times (5 minutes, every 5 seconds)
-                                    for _ in 0..60 {
+                                    // Poll bis zu 60 Versuche (~5 Minuten bei 404, bei Netzfehlern mit Backoff)
+                                    let mut consecutive_errors: u32 = 0;
+                                    for attempt in 0..60 {
+                                        log::debug!("LoginFlow: Polling Versuch {}", attempt + 1);
+
+                                        // Standard-Wartezeit (wird in den Branches gesetzt)
+                                        #[allow(unused_assignments)]
+                                        let mut wait_after_secs: u64 = 5; // Startwert, wird in Branches überschrieben
+
                                         match poll_client
                                             .post(&poll_url)
                                             .form(&[("token", &token)])
                                             .header("User-Agent", "Stalltagebuch/0.1.0")
+                                            .header("Accept", "application/json")
                                             .send()
                                             .await
                                         {
                                             Ok(response) => {
                                                 if response.status().as_u16() == 200 {
+                                                    log::info!("LoginFlow: Polling erfolgreich (200). Verarbeite Zugangsdaten…");
                                                     match response.json::<LoginFlowResult>().await {
                                                         Ok(result) => {
                                                             // Create WebDAV client and folder
@@ -376,15 +419,16 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                                         .await
                                                                     {
                                                                         Ok(_) => {
-                                                                            // Folder created successfully
+                                                                            log::info!("LoginFlow: Remote-Ordner erstellt: {}", remote_path_value);
                                                                         }
                                                                         Err(e) => {
                                                                             // Folder might already exist (405)
-                                                                            eprintln!("Folder creation note: {}", e);
+                                                                            log::debug!("LoginFlow: Ordner-Erstellung Hinweis (evtl. bereits vorhanden): {}", e);
                                                                         }
                                                                     }
                                                                 }
                                                                 Err(e) => {
+                                                                    log::error!("LoginFlow: WebDAV-Client Fehler: {:?}", e);
                                                                     login_state.set(LoginState::Error(
                                                                         format!("{}: {:?}", t!("error-webdav-client"), e),
                                                                     ));
@@ -413,9 +457,11 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                                             status_message.set(
                                                                                 format!("\u{2705} {}", t!("sync-login-success-folder"))
                                                                             );
+                                                                            log::info!("LoginFlow: Zugangsdaten gespeichert und Login abgeschlossen.");
                                                                             return;
                                                                         }
                                                                         Err(e) => {
+                                                                            log::error!("LoginFlow: Speichern der Sync-Settings fehlgeschlagen: {}", e);
                                                                             login_state.set(
                                                                                 LoginState::Error(format!(
                                                                                     "{}: {}",
@@ -427,6 +473,7 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                                     }
                                                                 }
                                                                 Err(e) => {
+                                                                    log::error!("LoginFlow: Datenbank-Init fehlgeschlagen: {}", e);
                                                                     login_state.set(LoginState::Error(
                                                                         format!("{}: {}", t!("error-database"), e),
                                                                     ));
@@ -435,6 +482,7 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                             }
                                                         }
                                                         Err(e) => {
+                                                            log::error!("LoginFlow: JSON-Parse der Poll-Antwort fehlgeschlagen: {}", e);
                                                             login_state.set(LoginState::Error(
                                                                 format!(
                                                                     "{}: {}",
@@ -446,6 +494,10 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                         }
                                                     }
                                                 } else if response.status().as_u16() != 404 {
+                                                    log::warn!(
+                                                        "LoginFlow: Unerwarteter HTTP-Status beim Polling: {}",
+                                                        response.status()
+                                                    );
                                                     login_state.set(LoginState::Error(format!(
                                                         "{}: {}",
                                                         t!("error-unexpected-status"),
@@ -454,33 +506,67 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                                     return;
                                                 }
                                                 // 404 means waiting, continue polling
+                                                log::debug!("LoginFlow: Polling noch nicht bestätigt (404). Weiter warten…");
+                                                consecutive_errors = 0; // reset on valid response
+                                                wait_after_secs = 5;
                                             }
                                             Err(e) => {
-                                                login_state.set(LoginState::Error(format!(
-                                                    "{}: {}",
-                                                    t!("error-poll"),
-                                                    e
-                                                )));
-                                                return;
+                                                // Netzfehler: mit Exponential-Backoff weiterprobieren statt früh abzubrechen
+                                                consecutive_errors =
+                                                    consecutive_errors.saturating_add(1);
+
+                                                let kind = if e.is_timeout() {
+                                                    "timeout"
+                                                } else if e.is_connect() {
+                                                    "connect"
+                                                } else if e.is_request() {
+                                                    "request"
+                                                } else {
+                                                    "other"
+                                                };
+
+                                                // Backoff: 5s, 10s, 20s, dann Deckel 30s
+                                                let backoff = 5u64.saturating_mul(
+                                                    1u64 << (consecutive_errors
+                                                        .saturating_sub(1)
+                                                        .min(2))
+                                                        as u32,
+                                                );
+                                                wait_after_secs = backoff.min(30);
+
+                                                log::warn!(
+                                                    "LoginFlow: Netzfehler beim Polling ({} in Folge, Typ: {}): {} – Backoff {}s",
+                                                    consecutive_errors,
+                                                    kind,
+                                                    e,
+                                                    wait_after_secs
+                                                );
                                             }
                                         }
 
-                                        // Wait 5 seconds before next poll
+                                        // Warten vor nächstem Poll (404: 5s, Netzfehler: Backoff)
                                         #[cfg(not(target_arch = "wasm32"))]
-                                        std::thread::sleep(std::time::Duration::from_secs(5));
+                                        {
+                                            tokio::time::sleep(std::time::Duration::from_secs(
+                                                wait_after_secs,
+                                            ))
+                                            .await;
+                                        }
                                         #[cfg(target_arch = "wasm32")]
                                         gloo_timers::future::sleep(std::time::Duration::from_secs(
-                                            5,
+                                            wait_after_secs,
                                         ))
                                         .await;
                                     }
 
+                                    log::error!("LoginFlow: Polling-Timeout nach 5 Minuten.");
                                     login_state.set(LoginState::Error(
                                         t!("error-login-timeout").to_string(),
                                     ));
                                 });
                             }
                             Err(e) => {
+                                log::error!("LoginFlow: JSON-Parse der Flow-Initialisierung fehlgeschlagen: {}", e);
                                 login_state.set(LoginState::Error(format!(
                                     "{}: {}",
                                     t!("error-json"),
@@ -489,6 +575,10 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                             }
                         }
                     } else {
+                        log::warn!(
+                            "LoginFlow: Server antwortete mit Status {} bei Flow-Start",
+                            response.status()
+                        );
                         login_state.set(LoginState::Error(format!(
                             "{}: {}",
                             t!("error-server"),
@@ -497,6 +587,7 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                     }
                 }
                 Err(e) => {
+                    log::error!("LoginFlow: Verbindungsfehler beim Flow-Start: {}", e);
                     login_state.set(LoginState::Error(format!(
                         "{}: {}",
                         t!("error-connection"),
@@ -620,18 +711,18 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                     status_message.set("🔄 Vollständige Synchronisation...".to_string());
                                     match crate::services::background_sync::sync_now().await {
                                         Ok(stats) => {
-                                            status_message.set(
-                                                format!(
-                                                    "✅ Sync erfolgreich: {} Wachteln, {} Events, {} Eier, {} Fotos hochgeladen, {} Operationen heruntergeladen",
-                                                    stats.quails_uploaded,
-                                                    stats.events_uploaded,
-                                                    stats.egg_records_uploaded,
-                                                    stats.photos_uploaded,
-                                                    stats.operations_downloaded,
-                                                ),
-                                            );
+                                            status_message
+                                                .set(
+                                                    format!(
+                                                        "✅ Sync erfolgreich: {} Ops heruntergeladen, {} Fotos hochgeladen",
+                                                        stats.operations_downloaded,
+                                                        stats.photos_uploaded,
+                                                    ),
+                                                );
                                             if let Ok(conn) = database::init_database() {
-                                                if let Ok(Some(updated)) = crate::services::sync_service::load_sync_settings(&conn) {
+                                                if let Ok(Some(updated)) = crate::services::sync_service::load_sync_settings(
+                                                    &conn,
+                                                ) {
                                                     current_settings.set(Some(updated));
                                                 }
                                             }
@@ -662,7 +753,10 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                     "🔄 Automatische Synchronisation"
                                 }
                                 p { style: "margin: 4px 0 0 0; font-size: 12px; color: #666;",
-                                    "Synchronisiert alle 5 Minuten im Hintergrund"
+                                    {
+                                        let interval = crate::services::background_sync::sync_interval_seconds();
+                                        format!("Synchronisiert alle {} Sekunden im Hintergrund", interval)
+                                    }
                                 }
                             }
                             button {
@@ -671,11 +765,13 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                                     if background_sync_running() {
                                         crate::services::background_sync::stop_background_sync();
                                         background_sync_running.set(false);
-                                        status_message.set("⏸️ Automatische Synchronisation gestoppt".to_string());
+                                        status_message
+                                            .set("⏸️ Automatische Synchronisation gestoppt".to_string());
                                     } else {
                                         crate::services::background_sync::start_background_sync();
                                         background_sync_running.set(true);
-                                        status_message.set("▶️ Automatische Synchronisation gestartet".to_string());
+                                        status_message
+                                            .set("▶️ Automatische Synchronisation gestartet".to_string());
                                     }
                                 },
                                 if background_sync_running() {
@@ -687,7 +783,186 @@ pub fn SettingsScreen(on_navigate: EventHandler<Screen>) -> Element {
                         }
                         if background_sync_running() {
                             p { style: "margin: 8px 0 0 0; font-size: 12px; color: #2e7d32; font-weight: 600;",
-                                "✓ Läuft im Hintergrund"
+                                "✓ Läuft im Hintergrund – nächster Sync in: "
+                                span { style: "font-weight: 700;", "{sync_eta().unwrap_or(0)}s" }
+                            }
+                        }
+                    }
+
+                    // Photo Upload Progress
+                    {
+                        let mut upload_progress = use_signal(|| (0usize, 0usize));
+                        use_coroutine(move |_: UnboundedReceiver<()>| async move {
+                            let mut rx = crate::services::background_sync::subscribe_upload_progress();
+                            loop {
+                                match rx.changed().await {
+                                    Ok(_) => {
+                                        let progress = *rx.borrow_and_update();
+                                        upload_progress.set(progress);
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                        });
+                        let (current, total) = upload_progress();
+                        if total > 0 {
+                            let percent = if total > 0 {
+                                (current as f64 / total as f64 * 100.0) as usize
+                            } else {
+                                0
+                            };
+                            rsx! {
+                                div { style: "margin-top: 16px; padding: 12px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffb300;",
+                                    div { style: "display: flex; align-items: center; gap: 12px; margin-bottom: 8px;",
+                                        span { style: "font-size: 24px;", "📤" }
+                                        div { style: "flex: 1;",
+                                            p { style: "margin: 0; font-weight: 600; font-size: 14px;", "Fotos werden hochgeladen..." }
+                                            p { style: "margin: 4px 0 0 0; font-size: 12px; color: #666;",
+                                                "{current} von {total} Fotos hochgeladen ({percent}%)"
+                                            }
+                                        }
+                                    }
+                                    div { style: "width: 100%; background: #e0e0e0; border-radius: 4px; height: 8px; overflow: hidden;",
+                                        div { style: "height: 100%; background: linear-gradient(90deg, #0066cc, #0088ff); transition: width 0.3s ease; width: {percent}%;" }
+                                    }
+                                }
+                            }
+                        } else {
+                            rsx! {}
+                        }
+                    }
+
+                    // Session Sync Log Anzeige
+                    div { style: "margin-top: 16px; padding: 12px; background: #fff; border-radius: 8px; border: 1px solid #ddd;",
+                        h3 { style: "margin: 0 0 8px 0; font-size: 16px;",
+                            "📝 Sync Sitzung (flüchtig)"
+                        }
+                        {
+                            let log_entries = sync_log();
+                            if log_entries.is_empty() {
+                                rsx! {
+                                    p { style: "margin: 0; font-size: 12px; color: #666;", "Noch keine Einträge" }
+                                }
+                            } else {
+                                rsx! {
+                                    div { style: "display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto;",
+                                        for entry in log_entries {
+                                            div { style: "font-size: 12px; padding: 4px 6px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #0066cc;",
+                                                span { style: "color: #333;",
+                                                    "{format_hms(entry.ts_ms)}: Ops {entry.operations_downloaded} · Fotos {entry.photos_uploaded}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Cleanup orphaned photos
+                    div { style: "margin-top: 16px; padding: 12px; background: #fff; border-radius: 8px; border: 1px solid #ddd;",
+                        h3 { style: "margin: 0 0 8px 0; font-size: 16px;", {t!("backup-cleanup-title")} }
+                        p { style: "margin: 0 0 12px 0; font-size: 13px; color: #666;",
+                            {t!("backup-cleanup-description")}
+                        }
+                        button {
+                            class: "btn-danger",
+                            style: "width: 100%;",
+                            onclick: {
+                                let mut status_message = status_message.clone();
+                                move |_| {
+                                    let confirmed = if cfg!(target_os = "android") { true } else { true };
+                                    if confirmed {
+                                        spawn(async move {
+                                            match database::init_database() {
+                                                Ok(conn) => {
+                                                    match crate::services::photo_service::cleanup_orphaned_photos(&conn).await {
+                                                        Ok(count) => {
+                                                            status_message.set(t!("backup-cleanup-success", count: count));
+                                                        }
+                                                        Err(e) => {
+                                                            status_message.set(t!("backup-cleanup-error", error: e.to_string()));
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    status_message.set(t!("backup-db-error", error: e.to_string()));
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                            },
+                            {t!("backup-cleanup-button")}
+                        }
+                    }
+
+                    // Daten-Export / -Import
+                    div { style: "margin-top: 16px; padding: 12px; background: #fff; border-radius: 8px; border: 1px solid #ddd;",
+                        h3 { style: "margin: 0 0 8px 0; font-size: 16px;", {t!("backup-export-title")} }
+                        p { style: "margin: 0 0 12px 0; font-size: 13px; color: #666;",
+                            {t!("backup-export-description")}
+                        }
+                        div { style: "display: flex; flex-direction: column; gap: 8px;",
+                            button {
+                                class: "btn-primary",
+                                style: "width: 100%;",
+                                onclick: {
+                                    let mut status_message = status_message.clone();
+                                    move |_| {
+                                        spawn(async move {
+                                            match database::init_database() {
+                                                Ok(conn) => match crate::services::export_import_service::export_to_zip(&conn).await {
+                                                    Ok(path) => {
+                                                        status_message.set(t!("backup-export-success", path: path.display().to_string()));
+                                                    }
+                                                    Err(e) => {
+                                                        status_message.set(t!("backup-export-error", error: e.to_string()));
+                                                    }
+                                                },
+                                                Err(e) => {
+                                                    status_message.set(t!("backup-db-error", error: e.to_string()));
+                                                }
+                                            }
+                                        });
+                                    }
+                                },
+                                {t!("backup-export-button")}
+                            }
+                            button {
+                                class: "btn-danger",
+                                style: "width: 100%;",
+                                onclick: {
+                                    let mut status_message = status_message.clone();
+                                    move |_| {
+                                        spawn(async move {
+                                            let base_dir = if cfg!(target_os = "android") {
+                                                std::path::PathBuf::from("/storage/emulated/0/Android/data/de.teilgedanken.stalltagebuch/files/exports")
+                                            } else {
+                                                std::path::PathBuf::from("./exports")
+                                            };
+                                            let import_path = base_dir.join("import.zip");
+                                            if !import_path.exists() {
+                                                status_message.set(t!("backup-import-missing", path: import_path.display().to_string()));
+                                                return;
+                                            }
+                                            match database::init_database() {
+                                                Ok(conn) => match crate::services::export_import_service::import_from_zip(&conn, &import_path, ImportMode::MergePreferImport).await {
+                                                    Ok(()) => {
+                                                        status_message.set(t!("backup-import-success", path: import_path.display().to_string()));
+                                                    }
+                                                    Err(e) => {
+                                                        status_message.set(t!("backup-import-error", error: e.to_string()));
+                                                    }
+                                                },
+                                                Err(e) => {
+                                                    status_message.set(t!("backup-db-error", error: e.to_string()));
+                                                }
+                                            }
+                                        });
+                                    }
+                                },
+                                {t!("backup-import-button")}
                             }
                         }
                     }
