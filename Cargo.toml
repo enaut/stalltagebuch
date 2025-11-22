@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "dioxus-gallery"]
+resolver = "2"
+
 [package]
 name = "stalltagebuch"
 version = "0.1.0"
@@ -8,6 +12,7 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+dioxus-gallery = { path = "dioxus-gallery" }
 dioxus = { version = "0.7.1", features = [] }
 dioxus-i18n = { git = "https://github.com/Kannen/dioxus-i18n.git", branch = "main" }
 unic-langid = { version = "0.9", features = ["macros"] }
