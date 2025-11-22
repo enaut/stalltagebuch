@@ -4,6 +4,7 @@ use crate::{
     services, Screen,
 };
 use dioxus::prelude::*;
+use dioxus_gallery::{Gallery, GalleryConfig, GalleryItem};
 use dioxus_i18n::t;
 
 #[component]
@@ -264,97 +265,67 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                         {format!("{} ({})", t!("field-photos"), photos().len())} // Photos count
                     }
 
-                    if photos().is_empty() {
-                        div { style: "padding: 24px; text-align: center; background: #f5f5f5; border-radius: 8px; color: #999;",
-                            {t!("photos-empty")} // No photos available. Add photos in detail view.
-                        }
-                    } else {
-                        div { style: "display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px;",
-                            for photo in photos() {
-                                {
-                                    let border_color = if selected_profile_photo_id().as_ref().map(|s| s.as_str())
-                                        == Some(&photo.uuid.to_string())
-                                    {
-                                        "#0066cc"
-                                    } else {
-                                        "#e0e0e0"
-                                    };
-                                    let photo_style = format!(
-                                        "position: relative; aspect-ratio: 1/1; border-radius: 8px; overflow: hidden; border: 2px solid {};",
-                                        border_color,
-                                    );
-                                    rsx! {
-                                        div { key: "{photo.uuid}", style: "{photo_style}",
-                                            // Bild
-                                            {
-                                                let thumb_path = photo.thumbnail_path.clone().unwrap_or(photo.path.clone());
-                                                match crate::image_processing::image_path_to_data_url(&thumb_path) {
-                                                    Ok(data_url) => rsx! {
-                                                        img {
-                                                            src: data_url,
-                                                            style: "width: 100%; height: 100%; object-fit: cover; cursor: pointer;",
-                                                            onclick: move |_| {
-                                                                selected_profile_photo_id.set(Some(photo.uuid.to_string()));
-                                                            },
-                                                        }
-                                                    },
-                                                    Err(_) => rsx! {
-                                                        div { style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f0f0f0; color: #999; font-size: 32px;",
-                                                            "📷"
-                                                        }
-                                                    },
-                                                }
-                                            }
-                                            // Löschen-Button
-                                            button {
-                                                style: "position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; background: rgba(204, 0, 0, 0.9); color: white; border-radius: 50%; font-size: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer;",
-                                                onclick: {
-                                                    let qid = quail_id_for_photo_delete.clone();
-                                                    let photo_uuid = photo.uuid;
-                                                    let photo_uuid_str = photo.uuid.to_string();
-                                                    move |_| {
-                                                        let qid_clone = qid.clone();
-                                                        let photo_uuid_clone = photo_uuid.clone();
-                                                        let photo_uuid_str_clone = photo_uuid_str.clone();
-                                                        spawn(async move {
-                                                            if let Ok(conn) = database::init_database() {
-                                                                match crate::services::photo_service::delete_photo(&conn, &photo_uuid_clone).await {
-                                                                    Ok(_) => {
-                                                                        if let Ok(q_uuid) = uuid::Uuid::parse_str(&qid_clone) {
-                                                                            if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
-                                                                                &conn,
-                                                                                &q_uuid,
-                                                                            ) {
-                                                                                photos.set(photo_list);
-                                                                                if selected_profile_photo_id().as_ref().map(|s| s.as_str())
-                                                                                    == Some(&photo_uuid_str_clone)
-                                                                                {
-                                                                                    selected_profile_photo_id.set(None);
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                    Err(e) => error.set(format!("{}: {}", t!("error-delete-failed"), e)),
+                    {
+                        let gallery_items: Vec<GalleryItem> = photos()
+                            .iter()
+                            .filter_map(|photo| {
+                                let thumb_path = photo.thumbnail_path.clone().unwrap_or(photo.path.clone());
+                                match crate::image_processing::image_path_to_data_url(&thumb_path) {
+                                    Ok(data_url) => Some(GalleryItem {
+                                        id: photo.uuid.to_string(),
+                                        data_url,
+                                        caption: None,
+                                    }),
+                                    Err(_) => None,
+                                }
+                            })
+                            .collect();
+
+                        let gallery_config = GalleryConfig {
+                            allow_delete: true,
+                            allow_select: true,
+                            selected_id: selected_profile_photo_id(),
+                        };
+
+                        rsx! {
+                            Gallery {
+                                items: gallery_items,
+                                config: gallery_config,
+                                on_delete: move |photo_id: String| {
+                                    let qid = quail_id_for_photo_delete.clone();
+                                    spawn(async move {
+                                        if let Ok(conn) = database::init_database() {
+                                            if let Ok(photo_uuid) = uuid::Uuid::parse_str(&photo_id) {
+                                                match crate::services::photo_service::delete_photo(&conn, &photo_uuid).await {
+                                                    Ok(_) => {
+                                                        if let Ok(q_uuid) = uuid::Uuid::parse_str(&qid) {
+                                                            if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
+                                                                &conn,
+                                                                &q_uuid,
+                                                            ) {
+                                                                photos.set(photo_list);
+                                                                if selected_profile_photo_id().as_ref().map(|s| s.as_str())
+                                                                    == Some(&photo_id)
+                                                                {
+                                                                    selected_profile_photo_id.set(None);
                                                                 }
                                                             }
-                                                        });
+                                                        }
                                                     }
-                                                },
-                                                "×"
-                                            }
-                                            // Radio-Button für Profilbild-Auswahl
-                                            if selected_profile_photo_id().as_ref().map(|s| s.as_str())
-                                                == Some(&photo.uuid.to_string())
-                                            {
-                                                div { style: "position: absolute; bottom: 4px; right: 4px; width: 24px; height: 24px; background: #0066cc; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px;",
-                                                    "✓"
+                                                    Err(e) => error.set(format!("{}: {}", t!("error-delete-failed"), e)),
                                                 }
                                             }
                                         }
-                                    }
-                                }
+                                    });
+                                },
+                                on_select: move |photo_id: String| {
+                                    selected_profile_photo_id.set(Some(photo_id));
+                                },
                             }
                         }
+                    }
+
+                    if !photos().is_empty() {
                         div { style: "margin-top: 12px; padding: 10px; background: #f9f9f9; border-radius: 6px; font-size: 12px; color: #666;",
                             {t!("info-tap-photo-to-mark")} // Tap a photo to mark it as profile photo.
                         }
