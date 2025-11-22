@@ -1,6 +1,5 @@
 use crate::{
     database,
-    image_processing,
     models::{EventType, QuailEvent},
     services::{event_service, photo_service},
     Screen,
@@ -19,7 +18,7 @@ fn EventPhotoGallery(
 ) -> Element {
     // Load all photo data asynchronously
     let photo_list = photos();
-    let loaded_photos = use_signal(|| Vec::<(String, String)>::new());
+    let mut loaded_photos = use_signal(|| Vec::<(String, String)>::new());
 
     // Trigger loading for all photos
     use_effect(move || {
