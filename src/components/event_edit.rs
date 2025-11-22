@@ -44,9 +44,21 @@ fn EventPhotoGallery(
                                 );
                                 loaded.push((photo_uuid, data_url));
                             }
-                            _ => {}
+                            Ok(crate::models::photo::PhotoResult::Downloading) => {
+                                log::debug!("Photo {} still downloading", photo_uuid);
+                            }
+                            Ok(crate::models::photo::PhotoResult::Failed(err, retry_count)) => {
+                                log::warn!("Photo {} download failed: {} (retry count: {})", photo_uuid, err, retry_count);
+                            }
+                            Err(e) => {
+                                log::error!("Failed to load photo {}: {}", photo_uuid, e);
+                            }
                         }
+                    } else {
+                        log::error!("Invalid photo UUID: {}", photo_uuid);
                     }
+                } else {
+                    log::error!("Failed to initialize database");
                 }
             }
             loaded_photos.set(loaded);
@@ -81,7 +93,14 @@ fn EventPhotoGallery(
                     spawn(async move {
                         if let Ok(conn) = database::init_database() {
                             if let Ok(uuid) = uuid::Uuid::parse_str(&photo_id) {
-                                let _ = photo_service::delete_photo(&conn, &uuid).await;
+                                match photo_service::delete_photo(&conn, &uuid).await {
+                                    Ok(_) => {
+                                        log::info!("Successfully deleted photo {}", photo_id);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to delete photo {}: {}", photo_id, e);
+                                    }
+                                }
                             }
                             if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
                                 if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {

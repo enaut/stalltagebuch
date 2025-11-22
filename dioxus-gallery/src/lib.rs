@@ -178,6 +178,12 @@ pub fn FullscreenViewer(
     /// Callback when user deletes the current item
     #[props(default)]
     on_delete: Option<EventHandler<String>>,
+    /// Callback when user navigates to previous item
+    #[props(default)]
+    on_navigate_prev: Option<EventHandler<()>>,
+    /// Callback when user navigates to next item
+    #[props(default)]
+    on_navigate_next: Option<EventHandler<()>>,
 ) -> Element {
     let current_index = all_items
         .iter()
@@ -215,7 +221,9 @@ pub fn FullscreenViewer(
                     button {
                         style: "position: absolute; left: 20px; width: 50px; height: 50px; background: rgba(255, 255, 255, 0.3); color: white; border-radius: 50%; font-size: 24px; cursor: pointer; border: none;",
                         onclick: move |_| {
-                            // Navigation handled by parent - this is placeholder
+                            if let Some(handler) = &on_navigate_prev {
+                                handler.call(());
+                            }
                         },
                         "‹"
                     }
@@ -230,7 +238,9 @@ pub fn FullscreenViewer(
                     button {
                         style: "position: absolute; right: 20px; width: 50px; height: 50px; background: rgba(255, 255, 255, 0.3); color: white; border-radius: 50%; font-size: 24px; cursor: pointer; border: none;",
                         onclick: move |_| {
-                            // Navigation handled by parent - this is placeholder
+                            if let Some(handler) = &on_navigate_next {
+                                handler.call(());
+                            }
                         },
                         "›"
                     }
