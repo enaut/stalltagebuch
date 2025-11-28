@@ -25,11 +25,11 @@ curl -sSL http://dioxus.dev/install.sh | sh
 
 ### Android SDK/NDK
 
-Setze \`ANDROID_HOME\` und \`NDK_HOME\` Umgebungsvariablen. Details siehe [Android Developer Docs](https://developer.android.com/studio/command-line/sdkmanager).
+Setze `ANDROID_HOME` und `NDK_HOME` Umgebungsvariablen. Details siehe [Android Developer Docs](https://developer.android.com/studio/command-line/sdkmanager).
 
 ## Build
 
-Since Dioxus 0.7, custom Android manifests and MainActivity are natively supported through \`Dioxus.toml\` configuration:
+Since Dioxus 0.7, custom Android manifests and MainActivity are natively supported through `Dioxus.toml` configuration:
 
 ```toml
 [application]
@@ -44,10 +44,10 @@ identifier = "de.teilgedanken.stalltagebuch"
 ### Debug Build
 
 ```bash
-# Simple build
+# Simple build (standard Dioxus CLI)
 dx build --platform android
 
-# Or use the wrapper script (also copies file_paths.xml for FileProvider)
+# Or use the wrapper script which also copies file_paths.xml for FileProvider/Camera functionality
 ./build_android.sh
 ```
 
