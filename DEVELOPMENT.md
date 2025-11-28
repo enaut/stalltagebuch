@@ -29,24 +29,38 @@ Setze \`ANDROID_HOME\` und \`NDK_HOME\` Umgebungsvariablen. Details siehe [Andro
 
 ## Build
 
+Since Dioxus 0.7, custom Android manifests and MainActivity are natively supported through \`Dioxus.toml\` configuration:
+
+```toml
+[application]
+android_manifest = "./android/AndroidManifest.xml"
+android_main_activity = "./android/MainActivity.kt"
+android_min_sdk_version = 28
+
+[bundle]
+identifier = "de.teilgedanken.stalltagebuch"
+```
+
 ### Debug Build
 
 ```bash
+# Simple build
+dx build --platform android
+
+# Or use the wrapper script (also copies file_paths.xml for FileProvider)
 ./build_android.sh
 ```
 
-**Was das Script macht:**
-1. Clean alte Build-Artefakte
-2. \`dx build --platform android\`
-3. Kopiert custom \`MainActivity.kt\`, \`AndroidManifest.xml\`, \`file_paths.xml\`
-4. Erstellt \`BuildConfig.kt\` Typealias
-5. Patched \`build.gradle.kts\`
-6. Gradle \`assembleDebug\`
+### Release Build
+
+```bash
+./build_android.sh --release
+```
 
 **APK-Pfad:**
-\`\`\`
+```
 target/dx/stalltagebuch/debug/android/app/app/build/outputs/apk/debug/app-debug.apk
-\`\`\`
+```
 
 ### Installation
 
@@ -111,10 +125,6 @@ sqlite3 stalltagebuch.db
 ```
 
 ## Troubleshooting
-
-### ClassNotFoundException: MainActivity
-
-→ Nutze \`build_android.sh\` statt \`dx build\` direkt
 
 ### Camera/Gallery crashed
 

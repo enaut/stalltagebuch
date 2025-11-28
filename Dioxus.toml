@@ -1,33 +1,21 @@
 [application]
 name = "stalltagebuch"
 
-# Hinweis: Der frühere post-build Hook (application.tools) wurde entfernt,
-# weil er für Android keinen Pre-Build bietet und unsere MainActivity vom
-# internen dx Build überschrieben wurde. Wir nutzen jetzt ein externes
-# Wrapper-Skript `build_android.sh` nach `dx build`.
+# Custom Android manifest with permissions and FileProvider configuration
+# Since Dioxus 0.7, custom manifests are natively supported
+android_manifest = "./android/AndroidManifest.xml"
 
-# Android-specific configuration
-[application.android]
-# Package name (must be unique in Play Store)
-package = "de.teilgedanken.stalltagebuch"
-
-# App display name
-app_name = "Wachtel-Stallbuch"
+# Custom MainActivity with Camera & Gallery integration
+# Since Dioxus 0.7, custom MainActivity is natively supported
+android_main_activity = "./android/MainActivity.kt"
 
 # Minimum SDK version (API 28 = Android 9.0)
-min_sdk_version = 28
+android_min_sdk_version = 28
 
-# Target SDK version (API 34 = Android 14)
-target_sdk_version = 34
-
-# Compile SDK version
-compile_sdk_version = 34
-
-# App icon (optional, place in assets/)
-# icon = "assets/icon.png"
-
-# Specify target architecture for OnePlus 8T (ARM64)
-target = "aarch64-linux-android"
+# Bundle configuration
+[bundle]
+# Package identifier (required for Android Play Store)
+identifier = "de.teilgedanken.stalltagebuch"
 
 [web.app]
 
