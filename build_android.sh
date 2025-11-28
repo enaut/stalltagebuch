@@ -3,10 +3,10 @@ set -euo pipefail
 
 # Simplified Android Build Script
 # Since Dioxus 0.7, custom AndroidManifest.xml and MainActivity.kt are natively supported.
-# This script only handles:
+# This script handles:
 # 1) Running dx build
 # 2) Copying res/xml resources (file_paths.xml for FileProvider)
-# 3) APK signing (optional for release builds)
+# 3) APK signing for release builds
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -22,6 +22,32 @@ DX_APP_DIR="$ROOT_DIR/target/dx/stalltagebuch/$BUILD_TYPE/android/app"
 APP_SRC_MAIN="$DX_APP_DIR/app/src/main"
 RES_XML_DIR="$APP_SRC_MAIN/res/xml"
 
+# Find Android SDK build-tools (zipalign and apksigner)
+find_build_tools() {
+    local sdk_path="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+    if [[ -z "$sdk_path" ]]; then
+        # Try common locations
+        for path in "$HOME/Android/Sdk" "/opt/android-sdk" "/usr/local/android-sdk"; do
+            if [[ -d "$path/build-tools" ]]; then
+                sdk_path="$path"
+                break
+            fi
+        done
+    fi
+    
+    if [[ -z "$sdk_path" || ! -d "$sdk_path/build-tools" ]]; then
+        echo ""
+        return
+    fi
+    
+    # Find the latest build-tools version
+    local latest_version
+    latest_version=$(ls -1 "$sdk_path/build-tools" 2>/dev/null | sort -V | tail -1)
+    if [[ -n "$latest_version" ]]; then
+        echo "$sdk_path/build-tools/$latest_version"
+    fi
+}
+
 # 1) Dioxus Build
 echo "[1/2] Running dx build --platform android ${RELEASE_FLAG}"
 dx build --platform android ${RELEASE_FLAG}
@@ -34,14 +60,71 @@ cp "$ROOT_DIR/android/res/xml/file_paths.xml" "$RES_XML_DIR/file_paths.xml"
 
 # Output paths
 if [[ "$BUILD_TYPE" == "release" ]]; then
-    APK_PATH="$DX_APP_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
+    APK_OUT_UNSIGNED="$DX_APP_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
+    APK_OUT_ALIGNED="$DX_APP_DIR/app/build/outputs/apk/release/app-release-unsigned-aligned.apk"
+    APK_OUT_SIGNED="$DX_APP_DIR/app/build/outputs/apk/release/app-release-signed.apk"
+    
+    # Find build tools
+    BUILD_TOOLS_DIR=$(find_build_tools)
+    
+    if [[ -z "$BUILD_TOOLS_DIR" ]]; then
+        echo ""
+        echo "⚠ Warning: Android SDK build-tools not found."
+        echo "  Set ANDROID_HOME or ANDROID_SDK_ROOT environment variable."
+        echo "  Unsigned APK: $APK_OUT_UNSIGNED"
+        exit 0
+    fi
+    
+    ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
+    APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+    
+    if [[ ! -x "$ZIPALIGN" || ! -x "$APKSIGNER" ]]; then
+        echo ""
+        echo "⚠ Warning: zipalign or apksigner not found in $BUILD_TOOLS_DIR"
+        echo "  Unsigned APK: $APK_OUT_UNSIGNED"
+        exit 0
+    fi
+    
+    # Align APK
+    if [[ -f "$APK_OUT_UNSIGNED" ]]; then
+        echo "[3/4] Aligning APK with zipalign"
+        "$ZIPALIGN" -v -p 4 "$APK_OUT_UNSIGNED" "$APK_OUT_ALIGNED"
+    else
+        echo "Error: Unsigned APK not found at $APK_OUT_UNSIGNED" >&2
+        exit 1
+    fi
+    
+    # Sign APK
+    if [[ -f "$APK_OUT_ALIGNED" ]]; then
+        echo "[4/4] Signing APK with apksigner"
+        "$APKSIGNER" sign \
+            --ks ~/.android/debug.keystore \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out "$APK_OUT_SIGNED" \
+            "$APK_OUT_ALIGNED"
+    else
+        echo "Error: Aligned APK not found at $APK_OUT_ALIGNED" >&2
+        exit 1
+    fi
+    
+    if [[ -f "$APK_OUT_SIGNED" ]]; then
+        echo ""
+        echo "✓ APK built and signed successfully: $APK_OUT_SIGNED"
+        echo ""
+        echo "Installation with:"
+        echo "  adb install -r $APK_OUT_SIGNED"
+    else
+        echo "Error: Signed APK not found at $APK_OUT_SIGNED" >&2
+        exit 1
+    fi
 else
     APK_PATH="$DX_APP_DIR/app/build/outputs/apk/debug/app-debug.apk"
+    echo ""
+    echo "✓ Android build completed"
+    echo "  APK location: $APK_PATH"
+    echo ""
+    echo "Installation with:"
+    echo "  adb install -r $APK_PATH"
 fi
-
-echo ""
-echo "✓ Android build completed"
-echo "  APK location: $APK_PATH"
-echo ""
-echo "Installation with:"
-echo "  adb install -r $APK_PATH"
