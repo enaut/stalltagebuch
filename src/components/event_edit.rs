@@ -7,15 +7,12 @@ use crate::{
 use base64::Engine;
 use chrono::NaiveDate;
 use dioxus::prelude::*;
-use dioxus_gallery::{Gallery, GalleryConfig, GalleryItem};
+use dioxus_gallery_components::{Gallery, GalleryConfig, GalleryItem};
 use dioxus_i18n::t;
 
 /// Helper component to load and display event photos using Gallery
 #[component]
-fn EventPhotoGallery(
-    event_id: String,
-    photos: Signal<Vec<crate::models::Photo>>,
-) -> Element {
+fn EventPhotoGallery(event_id: String, photos: Signal<Vec<crate::models::Photo>>) -> Element {
     // Load all photo data asynchronously
     let photo_list = photos();
     let mut loaded_photos = use_signal(|| Vec::<(String, String)>::new());
@@ -47,7 +44,12 @@ fn EventPhotoGallery(
                                 log::debug!("Photo {} still downloading", photo_uuid);
                             }
                             Ok(crate::models::photo::PhotoResult::Failed(err, retry_count)) => {
-                                log::warn!("Photo {} download failed: {} (retry count: {})", photo_uuid, err, retry_count);
+                                log::warn!(
+                                    "Photo {} download failed: {} (retry count: {})",
+                                    photo_uuid,
+                                    err,
+                                    retry_count
+                                );
                             }
                             Err(e) => {
                                 log::error!("Failed to load photo {}: {}", photo_uuid, e);
@@ -324,10 +326,7 @@ pub fn EventEditScreen(
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
                         {t!("photos-count", count : photos().len())}
                     }
-                    EventPhotoGallery {
-                        event_id: event_id.clone(),
-                        photos: photos.clone(),
-                    }
+                    EventPhotoGallery { event_id: event_id.clone(), photos: photos.clone() }
                     // Add buttons (always visible)
                     div { style: "display:flex; gap:12px;",
                         button {
@@ -349,11 +348,12 @@ pub fn EventEditScreen(
                                                             for p in paths {
                                                                 let ps = p.to_string_lossy().to_string();
                                                                 let _ = photo_service::add_event_photo(
-                                                                    &conn,
-                                                                    e_uuid,
-                                                                    ps,
-                                                                    None, // Thumbnails werden im Service erstellt
-                                                                ).await;
+                                                                        &conn,
+                                                                        e_uuid,
+                                                                        ps,
+                                                                        None,
+                                                                    )
+                                                                    .await;
                                                             }
                                                             if let Ok(list) = photo_service::list_event_photos(
                                                                 &conn,
@@ -402,11 +402,12 @@ pub fn EventEditScreen(
                                                         if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
                                                             let ps = p.to_string_lossy().to_string();
                                                             let _ = photo_service::add_event_photo(
-                                                                &conn,
-                                                                e_uuid,
-                                                                ps,
-                                                                None, // Thumbnails werden im Service erstellt
-                                                            ).await;
+                                                                    &conn,
+                                                                    e_uuid,
+                                                                    ps,
+                                                                    None,
+                                                                )
+                                                                .await;
                                                             if let Ok(list) = photo_service::list_event_photos(
                                                                 &conn,
                                                                 &e_uuid,

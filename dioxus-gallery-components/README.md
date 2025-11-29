@@ -17,7 +17,7 @@ Main component for displaying a grid of images with optional interactions.
 
 ```rust
 use dioxus::prelude::*;
-use dioxus_gallery::{Gallery, GalleryConfig, GalleryItem};
+use dioxus_gallery_components::{Gallery, GalleryConfig, GalleryItem};
 
 #[component]
 fn MyGallery() -> Element {
@@ -58,7 +58,7 @@ fn MyGallery() -> Element {
 Component for viewing photos in fullscreen mode with navigation.
 
 ```rust
-use dioxus_gallery::{FullscreenViewer, GalleryItem};
+use dioxus_gallery_components::{FullscreenViewer, GalleryItem};
 
 #[component]
 fn MyViewer(current_item: GalleryItem, all_items: Vec<GalleryItem>) -> Element {

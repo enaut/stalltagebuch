@@ -4,7 +4,7 @@ use crate::{
     services, Screen,
 };
 use dioxus::prelude::*;
-use dioxus_gallery::{Gallery, GalleryConfig, GalleryItem};
+use dioxus_gallery_components::{Gallery, GalleryConfig, GalleryItem};
 use dioxus_i18n::t;
 
 #[component]
@@ -269,24 +269,27 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                         let gallery_items: Vec<GalleryItem> = photos()
                             .iter()
                             .filter_map(|photo| {
-                                let thumb_path = photo.thumbnail_path.clone().unwrap_or(photo.path.clone());
+                                let thumb_path = photo
+                                    .thumbnail_path
+                                    .clone()
+                                    .unwrap_or(photo.path.clone());
                                 match crate::image_processing::image_path_to_data_url(&thumb_path) {
-                                    Ok(data_url) => Some(GalleryItem {
-                                        id: photo.uuid.to_string(),
-                                        data_url,
-                                        caption: None,
-                                    }),
+                                    Ok(data_url) => {
+                                        Some(GalleryItem {
+                                            id: photo.uuid.to_string(),
+                                            data_url,
+                                            caption: None,
+                                        })
+                                    }
                                     Err(_) => None,
                                 }
                             })
                             .collect();
-
                         let gallery_config = GalleryConfig {
                             allow_delete: true,
                             allow_select: true,
                             selected_id: selected_profile_photo_id(),
                         };
-
                         rsx! {
                             Gallery {
                                 items: gallery_items,
@@ -296,7 +299,12 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                                     spawn(async move {
                                         if let Ok(conn) = database::init_database() {
                                             if let Ok(photo_uuid) = uuid::Uuid::parse_str(&photo_id) {
-                                                match crate::services::photo_service::delete_photo(&conn, &photo_uuid).await {
+                                                match crate::services::photo_service::delete_photo(
+                                                        &conn,
+                                                        &photo_uuid,
+                                                    )
+                                                    .await
+                                                {
                                                     Ok(_) => {
                                                         if let Ok(q_uuid) = uuid::Uuid::parse_str(&qid) {
                                                             if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
@@ -312,7 +320,9 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                                                             }
                                                         }
                                                     }
-                                                    Err(e) => error.set(format!("{}: {}", t!("error-delete-failed"), e)),
+                                                    Err(e) => {
+                                                        error.set(format!("{}: {}", t!("error-delete-failed"), e))
+                                                    }
                                                 }
                                             }
                                         }
