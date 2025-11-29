@@ -1,6 +1,5 @@
 use crate::{
     database,
-    image_processing,
     models::{EventType, QuailEvent},
     services::{event_service, photo_service},
     Screen,
@@ -8,103 +7,110 @@ use crate::{
 use base64::Engine;
 use chrono::NaiveDate;
 use dioxus::prelude::*;
+use dioxus_gallery_components::{Gallery, GalleryConfig, GalleryItem};
 use dioxus_i18n::t;
 
+/// Helper component to load and display event photos using Gallery
 #[component]
-fn PhotoDisplay(
-    photo_uuid: String,
-    event_id: String,
-    photos: Signal<Vec<crate::models::Photo>>,
-) -> Element {
-    let photo_uuid_clone = photo_uuid.clone();
-    let photo_data = use_resource(move || {
-        let photo_uuid = photo_uuid_clone.clone();
-        async move {
-            if let Ok(conn) = database::init_database() {
-                if let Ok(uuid) = uuid::Uuid::parse_str(&photo_uuid) {
-                    match photo_service::get_photo_with_download(
-                        &conn,
-                        &uuid,
-                        crate::models::photo::PhotoSize::Small,
-                    )
-                    .await
-                    {
-                        Ok(crate::models::photo::PhotoResult::Available(bytes)) => {
-                            let data_url = format!(
-                                "data:image/webp;base64,{}",
-                                base64::engine::general_purpose::STANDARD.encode(&bytes)
-                            );
-                            Some(data_url)
-                        }
-                        Ok(crate::models::photo::PhotoResult::Downloading) => None, // Still loading
-                        Ok(crate::models::photo::PhotoResult::Failed(_, _)) => {
-                            Some("failed".to_string())
-                        }
-                        Err(_) => Some("failed".to_string()),
-                    }
-                } else {
-                    Some("failed".to_string())
-                }
-            } else {
-                Some("failed".to_string())
-            }
-        }
-    });
+fn EventPhotoGallery(event_id: String, photos: Signal<Vec<crate::models::Photo>>) -> Element {
+    // Load all photo data asynchronously
+    let photo_list = photos();
+    let mut loaded_photos = use_signal(|| Vec::<(String, String)>::new());
 
-    rsx! {
-        div {
-            key: "{photo_uuid}",
-            style: "position:relative; aspect-ratio:1/1; border-radius:8px; overflow:hidden; border:2px solid #e0e0e0;",
-            {
-                match photo_data() {
-                    Some(Some(data_url)) if data_url == "downloading" => rsx! {
-                        div { class: "photo-loading", "⏳" }
-                    },
-                    Some(Some(data_url)) if data_url == "failed" => rsx! {
-                        div { class: "photo-failed", "⚠️" }
-                    },
-                    Some(Some(data_url)) => rsx! {
-                        img {
-                            src: "{data_url}",
-                            class: "event-photo",
-                            onclick: move |_| {
-                                // Optional: could add photo viewer or delete functionality
+    // Trigger loading for all photos
+    use_effect(move || {
+        let photo_list = photos();
+        spawn(async move {
+            let mut loaded = Vec::new();
+            for photo in photo_list {
+                let photo_uuid = photo.uuid.to_string();
+                if let Ok(conn) = database::init_database() {
+                    if let Ok(uuid) = uuid::Uuid::parse_str(&photo_uuid) {
+                        match photo_service::get_photo_with_download(
+                            &conn,
+                            &uuid,
+                            crate::models::photo::PhotoSize::Small,
+                        )
+                        .await
+                        {
+                            Ok(crate::models::photo::PhotoResult::Available(bytes)) => {
+                                let data_url = format!(
+                                    "data:image/webp;base64,{}",
+                                    base64::engine::general_purpose::STANDARD.encode(&bytes)
+                                );
+                                loaded.push((photo_uuid, data_url));
+                            }
+                            Ok(crate::models::photo::PhotoResult::Downloading) => {
+                                log::debug!("Photo {} still downloading", photo_uuid);
+                            }
+                            Ok(crate::models::photo::PhotoResult::Failed(err, retry_count)) => {
+                                log::warn!(
+                                    "Photo {} download failed: {} (retry count: {})",
+                                    photo_uuid,
+                                    err,
+                                    retry_count
+                                );
+                            }
+                            Err(e) => {
+                                log::error!("Failed to load photo {}: {}", photo_uuid, e);
                             }
                         }
-                    },
-                    Some(None) => rsx! {
-                        div { class: "photo-loading", "⏳" }
-                    },
-                    None => rsx! {
-                        div { class: "photo-loading", "⏳" }
-                    },
+                    } else {
+                        log::error!("Invalid photo UUID: {}", photo_uuid);
+                    }
+                } else {
+                    log::error!("Failed to initialize database");
                 }
             }
-            button {
-                style: "position:absolute; top:4px; right:4px; width:28px; height:28px; background:rgba(204,0,0,0.85); color:white; border-radius:50%; font-size:14px; cursor:pointer;",
-                onclick: {
-                    let event_id_for_photo_delete = event_id.clone();
-                    let photo_uuid_clone = photo_uuid.clone();
-                    let photos_clone = photos.clone();
-                    move |_| {
-                        let event_id_clone = event_id_for_photo_delete.clone();
-                        let photo_uuid_clone2 = photo_uuid_clone.clone();
-                        let mut photos_clone2 = photos_clone.clone();
-                        spawn(async move {
-                            if let Ok(conn) = database::init_database() {
-                                if let Ok(uuid) = uuid::Uuid::parse_str(&photo_uuid_clone2) {
-                                    let _ = photo_service::delete_photo(&conn, &uuid).await;
-                                }
-                                if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
-                                    if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
-                                        photos_clone2.set(list);
+            loaded_photos.set(loaded);
+        });
+    });
+
+    let gallery_items: Vec<GalleryItem> = loaded_photos()
+        .iter()
+        .map(|(id, data_url)| GalleryItem {
+            id: id.clone(),
+            data_url: data_url.clone(),
+            caption: None,
+        })
+        .collect();
+
+    let gallery_config = GalleryConfig {
+        allow_delete: true,
+        allow_select: false,
+        selected_id: None,
+    };
+
+    rsx! {
+        if gallery_items.is_empty() && !photo_list.is_empty() {
+            // Loading state
+            div { style: "padding: 24px; text-align: center; color: #666;", "⏳ Loading photos..." }
+        } else {
+            Gallery {
+                items: gallery_items,
+                config: gallery_config,
+                on_delete: move |photo_id: String| {
+                    let event_id_clone = event_id.clone();
+                    spawn(async move {
+                        if let Ok(conn) = database::init_database() {
+                            if let Ok(uuid) = uuid::Uuid::parse_str(&photo_id) {
+                                match photo_service::delete_photo(&conn, &uuid).await {
+                                    Ok(_) => {
+                                        log::info!("Successfully deleted photo {}", photo_id);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to delete photo {}: {}", photo_id, e);
                                     }
                                 }
                             }
-                        });
-                    }
+                            if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
+                                if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
+                                    photos.set(list);
+                                }
+                            }
+                        }
+                    });
                 },
-                "×"
             }
         }
     }
@@ -320,17 +326,7 @@ pub fn EventEditScreen(
                     label { style: "display:block; font-weight:600; margin-bottom:6px;",
                         {t!("photos-count", count : photos().len())}
                     }
-                    if !photos().is_empty() {
-                        div { style: "display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; margin-bottom:12px;",
-                            for photo in photos() {
-                                PhotoDisplay {
-                                    photo_uuid: photo.uuid.to_string(),
-                                    event_id: event_id.clone(),
-                                    photos: photos.clone()
-                                }
-                            }
-                        }
-                    }
+                    EventPhotoGallery { event_id: event_id.clone(), photos: photos.clone() }
                     // Add buttons (always visible)
                     div { style: "display:flex; gap:12px;",
                         button {
@@ -352,11 +348,12 @@ pub fn EventEditScreen(
                                                             for p in paths {
                                                                 let ps = p.to_string_lossy().to_string();
                                                                 let _ = photo_service::add_event_photo(
-                                                                    &conn,
-                                                                    e_uuid,
-                                                                    ps,
-                                                                    None, // Thumbnails werden im Service erstellt
-                                                                ).await;
+                                                                        &conn,
+                                                                        e_uuid,
+                                                                        ps,
+                                                                        None,
+                                                                    )
+                                                                    .await;
                                                             }
                                                             if let Ok(list) = photo_service::list_event_photos(
                                                                 &conn,
@@ -405,11 +402,12 @@ pub fn EventEditScreen(
                                                         if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
                                                             let ps = p.to_string_lossy().to_string();
                                                             let _ = photo_service::add_event_photo(
-                                                                &conn,
-                                                                e_uuid,
-                                                                ps,
-                                                                None, // Thumbnails werden im Service erstellt
-                                                            ).await;
+                                                                    &conn,
+                                                                    e_uuid,
+                                                                    ps,
+                                                                    None,
+                                                                )
+                                                                .await;
                                                             if let Ok(list) = photo_service::list_event_photos(
                                                                 &conn,
                                                                 &e_uuid,
