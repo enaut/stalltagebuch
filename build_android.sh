@@ -96,6 +96,11 @@ if [[ "$BUILD_TYPE" == "release" ]]; then
     # Align APK
     if [[ -f "$APK_OUT_UNSIGNED" ]]; then
         echo "[3/4] Aligning APK with zipalign"
+        # Remove any existing aligned APK to avoid zipalign failing with "Output file exists"
+        if [[ -f "$APK_OUT_ALIGNED" ]]; then
+            echo "Note: existing aligned APK found, removing: $APK_OUT_ALIGNED"
+            rm -f "$APK_OUT_ALIGNED"
+        fi
         "$ZIPALIGN" -v -p 4 "$APK_OUT_UNSIGNED" "$APK_OUT_ALIGNED"
     else
         echo "Error: Unsigned APK not found at $APK_OUT_UNSIGNED" >&2
@@ -105,6 +110,11 @@ if [[ "$BUILD_TYPE" == "release" ]]; then
     # Sign APK
     if [[ -f "$APK_OUT_ALIGNED" ]]; then
         echo "[4/4] Signing APK with apksigner"
+        # If a previous signed APK exists, remove it to avoid apksigner errors
+        if [[ -f "$APK_OUT_SIGNED" ]]; then
+            echo "Note: existing signed APK found, removing: $APK_OUT_SIGNED"
+            rm -f "$APK_OUT_SIGNED"
+        fi
         "$APKSIGNER" sign \
             --ks ~/.android/debug.keystore \
             --ks-key-alias androiddebugkey \
