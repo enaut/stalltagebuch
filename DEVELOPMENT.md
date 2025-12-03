@@ -57,9 +57,11 @@ dx build --platform android
 ./build_android.sh --release
 ```
 
-**APK-Pfad:**
+Lint-Tasks für Release-Builds werden automatisch übersprungen, damit der Gradle-Prozess nicht an `lintVital` scheitert.
+
+**APK-Pfad (signiert):**
 ```
-target/dx/stalltagebuch/debug/android/app/app/build/outputs/apk/debug/app-debug.apk
+target/dx/stalltagebuch/release/android/app/app/build/outputs/apk/release/app-release.apk
 ```
 
 ### Installation
@@ -67,6 +69,20 @@ target/dx/stalltagebuch/debug/android/app/app/build/outputs/apk/debug/app-debug.
 ```bash
 adb install -r target/dx/stalltagebuch/debug/android/app/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+Für Release-Builds ersetze den Pfad durch `release/.../app-release.apk`.
+
+### Signing
+
+Release-Builds werden automatisch mit dem Entwicklungs-Keystore signiert:
+
+| Feld | Wert |
+| --- | --- |
+| Keystore | `android/release.keystore` |
+| Alias | `stalltagebuchReleaseKey` |
+| Passwörter | `android` |
+
+Für produktive Uploads sollte ein eigener Keystore erstellt und die Werte in `Dioxus.toml` (`[bundle.android]`) angepasst werden.
 
 ### Desktop Development (schneller)
 

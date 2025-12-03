@@ -17,6 +17,13 @@ android_min_sdk_version = 28
 # Package identifier (required for Android Play Store)
 identifier = "de.teilgedanken.stalltagebuch"
 
+[bundle.android]
+# Development keystore for signing release builds; replace for production
+jks_file = "android/release.keystore"
+jks_password = "android"
+key_alias = "stalltagebuchReleaseKey"
+key_password = "android"
+
 [web.app]
 
 # HTML title tag content
