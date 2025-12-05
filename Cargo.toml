@@ -13,6 +13,8 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 dioxus-gallery-components = { path = "dioxus-gallery-components" }
+photo-gallery = { path = "photo-gallery", features = ["sync"] }
+nextcloud-auth = { path = "nextcloud-auth" }
 dioxus = { version = "0.7.1", features = [] }
 dioxus-i18n = { git = "https://github.com/Kannen/dioxus-i18n.git", branch = "main" }
 unic-langid = { version = "0.9", features = ["macros"] }
