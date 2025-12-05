@@ -66,12 +66,14 @@ impl PhotoGalleryService {
     }
 
     /// Add a photo for a quail
+    /// 
+    /// Returns the UUID of the created photo. The caller is responsible for
+    /// any additional operations like CRDT operation capture.
     pub async fn add_quail_photo(
         &self,
         conn: &Connection,
         quail_id: Uuid,
         path: String,
-        operation_capture_fn: Option<Box<dyn Fn(&Connection, &str, Option<&str>, Option<&str>, &str, Option<&str>) -> Result<(), PhotoGalleryError> + Send>>,
     ) -> Result<Uuid, PhotoGalleryError> {
         log::debug!("=== add_quail_photo called ===");
         log::debug!("Quail ID: {}, Path: {}", quail_id, path);
@@ -102,22 +104,18 @@ impl PhotoGalleryService {
             ],
         )?;
 
-        // Capture CRDT operation if callback provided
-        if let Some(capture_fn) = operation_capture_fn {
-            capture_fn(conn, &uuid.to_string(), Some(&quail_id.to_string()), None, &new_path, Some(&small_thumb))
-                .map_err(|e| PhotoGalleryError::Other(format!("Operation capture failed: {}", e)))?;
-        }
-
         Ok(uuid)
     }
 
     /// Add a photo for an event
+    /// 
+    /// Returns the UUID of the created photo. The caller is responsible for
+    /// any additional operations like CRDT operation capture.
     pub async fn add_event_photo(
         &self,
         conn: &Connection,
         event_id: Uuid,
         path: String,
-        operation_capture_fn: Option<Box<dyn Fn(&Connection, &str, Option<&str>, Option<&str>, &str, Option<&str>) -> Result<(), PhotoGalleryError> + Send>>,
     ) -> Result<Uuid, PhotoGalleryError> {
         // Rename photo and create multi-size thumbnails (in blocking thread)
         let (new_path, small_thumb, medium_thumb) = rename_photo_with_uuid(
@@ -141,12 +139,6 @@ impl PhotoGalleryService {
                 &medium_thumb,
             ],
         )?;
-
-        // Capture CRDT operation if callback provided
-        if let Some(capture_fn) = operation_capture_fn {
-            capture_fn(conn, &uuid.to_string(), None, Some(&event_id.to_string()), &new_path, Some(&small_thumb))
-                .map_err(|e| PhotoGalleryError::Other(format!("Operation capture failed: {}", e)))?;
-        }
 
         Ok(uuid)
     }
@@ -281,11 +273,12 @@ impl PhotoGalleryService {
     }
 
     /// Delete a photo
+    /// 
+    /// The caller is responsible for any additional operations like CRDT operation capture.
     pub async fn delete_photo(
         &self,
         conn: &Connection,
         photo_uuid: &Uuid,
-        operation_capture_fn: Option<Box<dyn Fn(&Connection, &str) -> Result<(), PhotoGalleryError> + Send>>,
     ) -> Result<(), PhotoGalleryError> {
         let rows = conn.execute(
             "DELETE FROM photos WHERE uuid = ?1",
@@ -294,12 +287,6 @@ impl PhotoGalleryService {
         
         if rows == 0 {
             return Err(PhotoGalleryError::NotFound("Photo not found".into()));
-        }
-
-        // Capture CRDT deletion if callback provided
-        if let Some(capture_fn) = operation_capture_fn {
-            capture_fn(conn, &photo_uuid.to_string())
-                .map_err(|e| PhotoGalleryError::Other(format!("Operation capture failed: {}", e)))?;
         }
 
         Ok(())

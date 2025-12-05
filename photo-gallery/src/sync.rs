@@ -232,9 +232,9 @@ impl PhotoSyncService {
 fn calculate_backoff(retry: u32) -> u64 {
     use rand::Rng;
     
-    let base_delay = 60 * (1 << (retry - 1).min(4)); // 60s, 120s, 240s, 480s, 960s max
-    let max_delay = base_delay.min(300); // Cap at 5 minutes
-    let jitter = rand::rng().random_range(0..=max_delay);
+    let base_delay = 60 * (1 << (retry - 1).min(4)); // 60s, 120s, 240s, 480s, 960s
+    let max_delay = base_delay.min(300); // Cap at 300s (5 minutes)
+    let jitter = rand::rng().gen_range(0..=max_delay);
     jitter
 }
 

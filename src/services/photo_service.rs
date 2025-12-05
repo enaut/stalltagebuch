@@ -64,27 +64,37 @@ pub async fn add_quail_photo(
 
     let service = init_photo_service();
 
-    // Create operation capture callback
-    let operation_capture = Box::new(
-        move |conn: &Connection,
-              uuid: &str,
-              quail_id: Option<&str>,
-              event_id: Option<&str>,
-              path: &str,
-              thumbnail: Option<&str>| {
-            crate::services::operation_capture::capture_photo_create_sync(
-                conn, uuid, quail_id, event_id, path, thumbnail,
-            )
-            .map_err(|e| {
-                photo_gallery::PhotoGalleryError::Other(format!("Operation capture: {}", e))
-            })
-        },
-    );
-
-    service
-        .add_quail_photo(conn, quail_id, path, Some(operation_capture))
+    // Add photo using photo-gallery service
+    let photo_uuid = service
+        .add_quail_photo(conn, quail_id, path)
         .await
-        .map_err(convert_error)
+        .map_err(convert_error)?;
+
+    // Get the relative path for operation capture
+    let relative_path: String = conn.query_row(
+        "SELECT relative_path FROM photos WHERE uuid = ?1",
+        rusqlite::params![photo_uuid.to_string()],
+        |row| row.get(0),
+    )?;
+
+    let thumbnail_small: Option<String> = conn.query_row(
+        "SELECT thumbnail_small_path FROM photos WHERE uuid = ?1",
+        rusqlite::params![photo_uuid.to_string()],
+        |row| row.get(0),
+    )?;
+
+    // Capture CRDT operation after photo is created
+    crate::services::operation_capture::capture_photo_create(
+        conn,
+        &photo_uuid.to_string(),
+        Some(&quail_id.to_string()),
+        None,
+        &relative_path,
+        thumbnail_small.as_deref(),
+    )
+    .await?;
+
+    Ok(photo_uuid)
 }
 
 pub async fn add_event_photo(
@@ -95,27 +105,37 @@ pub async fn add_event_photo(
 ) -> Result<Uuid, AppError> {
     let service = init_photo_service();
 
-    // Create operation capture callback
-    let operation_capture = Box::new(
-        move |conn: &Connection,
-              uuid: &str,
-              quail_id: Option<&str>,
-              event_id: Option<&str>,
-              path: &str,
-              thumbnail: Option<&str>| {
-            crate::services::operation_capture::capture_photo_create_sync(
-                conn, uuid, quail_id, event_id, path, thumbnail,
-            )
-            .map_err(|e| {
-                photo_gallery::PhotoGalleryError::Other(format!("Operation capture: {}", e))
-            })
-        },
-    );
-
-    service
-        .add_event_photo(conn, event_id, path, Some(operation_capture))
+    // Add photo using photo-gallery service
+    let photo_uuid = service
+        .add_event_photo(conn, event_id, path)
         .await
-        .map_err(convert_error)
+        .map_err(convert_error)?;
+
+    // Get the relative path for operation capture
+    let relative_path: String = conn.query_row(
+        "SELECT relative_path FROM photos WHERE uuid = ?1",
+        rusqlite::params![photo_uuid.to_string()],
+        |row| row.get(0),
+    )?;
+
+    let thumbnail_small: Option<String> = conn.query_row(
+        "SELECT thumbnail_small_path FROM photos WHERE uuid = ?1",
+        rusqlite::params![photo_uuid.to_string()],
+        |row| row.get(0),
+    )?;
+
+    // Capture CRDT operation after photo is created
+    crate::services::operation_capture::capture_photo_create(
+        conn,
+        &photo_uuid.to_string(),
+        None,
+        Some(&event_id.to_string()),
+        &relative_path,
+        thumbnail_small.as_deref(),
+    )
+    .await?;
+
+    Ok(photo_uuid)
 }
 
 pub fn list_quail_photos(conn: &Connection, quail_uuid: &Uuid) -> Result<Vec<Photo>, AppError> {
@@ -185,17 +205,17 @@ pub async fn set_profile_photo(
 pub async fn delete_photo(conn: &Connection, photo_uuid: &Uuid) -> Result<(), AppError> {
     let service = init_photo_service();
 
-    // Create operation capture callback
-    let operation_capture = Box::new(move |conn: &Connection, uuid: &str| {
-        crate::services::operation_capture::capture_photo_delete_sync(conn, uuid).map_err(|e| {
-            photo_gallery::PhotoGalleryError::Other(format!("Operation capture: {}", e))
-        })
-    });
-
+    // Delete photo using photo-gallery service
     service
-        .delete_photo(conn, photo_uuid, Some(operation_capture))
+        .delete_photo(conn, photo_uuid)
         .await
-        .map_err(convert_error)
+        .map_err(convert_error)?;
+
+    // Capture CRDT deletion after photo is deleted
+    crate::services::operation_capture::capture_photo_delete(conn, &photo_uuid.to_string())
+        .await?;
+
+    Ok(())
 }
 
 /// Get photo with on-demand download capability
@@ -408,31 +428,3 @@ pub async fn cleanup_orphaned_photos(conn: &Connection) -> Result<usize, AppErro
 
     Ok(count)
 }
-
-// Synchronous wrappers for operation capture (to avoid async in callbacks)
-mod operation_capture_wrappers {
-    use super::*;
-
-    pub fn capture_photo_create_sync(
-        conn: &Connection,
-        uuid: &str,
-        quail_id: Option<&str>,
-        event_id: Option<&str>,
-        path: &str,
-        thumbnail: Option<&str>,
-    ) -> Result<(), AppError> {
-        // Since we can't do async in a sync callback, we'll use a runtime handle
-        tokio::runtime::Handle::current().block_on(
-            crate::services::operation_capture::capture_photo_create(
-                conn, uuid, quail_id, event_id, path, thumbnail,
-            ),
-        )
-    }
-
-    pub fn capture_photo_delete_sync(conn: &Connection, uuid: &str) -> Result<(), AppError> {
-        tokio::runtime::Handle::current()
-            .block_on(crate::services::operation_capture::capture_photo_delete(conn, uuid))
-    }
-}
-
-use operation_capture_wrappers::*;
