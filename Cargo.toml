@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "dioxus-gallery-components"]
+members = [".", "dioxus-gallery-components", "nextcloud-auth", "photo-gallery"]
 resolver = "2"
 
 [package]
