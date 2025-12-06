@@ -45,6 +45,8 @@ pub mod download;
 #[cfg(feature = "components")]
 pub mod components;
 
+pub mod picker;
+
 pub use models::{Photo, PhotoCollection, PhotoGalleryConfig, PhotoResult, PhotoSize};
 pub use schema::{init_photo_schema, migrate_existing_photos_to_collections};
 pub use service::{PhotoGalleryError, PhotoGalleryService};
@@ -61,6 +63,11 @@ pub use download::{DownloadError, DownloadResult, PhotoDownloadConfig, PhotoDown
 
 #[cfg(feature = "components")]
 pub use components::{
-    CollectionFullscreen, FullscreenImage, PreviewCollection, PreviewImage, ThumbnailCollection,
+    get_collection_photos, get_collection_preview_path, get_photo_path, CollectionFullscreen,
+    FullscreenImage, PhotoGalleryContext, PreviewCollection, PreviewImage, ThumbnailCollection,
     ThumbnailImage,
+};
+
+pub use picker::{
+    capture_photo, has_camera_permission, pick_image, pick_images, AndroidPickerConfig, PickerError,
 };

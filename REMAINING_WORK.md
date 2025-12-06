@@ -48,41 +48,23 @@ This document outlines the remaining tasks to complete the full refactoring of p
 - Update `src/services/upload_service.rs` to call photo-gallery
 - Update `src/services/download_service.rs` (if exists) similarly
 
-### 3. Move Camera/Gallery Picking to photo-gallery ❌
+### 3. Move Camera/Gallery Picking to photo-gallery ✅
 
-**Current state:**
-- `src/camera.rs` contains Android JNI code for camera/gallery picker
-- Highly platform-specific with MainActivity integration
-- Uses app context from ndk_context
+**Completed:**
+- Created `photo-gallery/src/picker.rs` with full Android JNI implementation
+- Moved all camera/gallery picking logic to photo-gallery crate
+- Main crate's `src/camera.rs` is now a thin wrapper for backward compatibility
+- Made MainActivity class name configurable via `AndroidPickerConfig`
+- All platform-specific code now in photo-gallery
+- Comprehensive `PICKER_API.md` documentation
 
-**Challenges:**
-- Android JNI code needs access to MainActivity class
-- Requires app-specific class names and context
-- May need to stay in main crate with callback API
-
-**Options:**
-
-**Option A: Full move (complex)**
-- Move entire `camera.rs` to photo-gallery
-- Make class names configurable
-- Provide trait for platform-specific implementations
-
-**Option B: Callback API (recommended)**
-- Keep `camera.rs` in main crate
-- Photo-gallery provides "add photo" component/function
-- Component accepts callback for platform-specific picking
-- Example:
-  ```rust
-  photo_gallery::components::AddPhotoButton {
-      on_pick: move |picked_path| {
-          // Platform-specific code calls this with result
-      }
-  }
-  ```
-
-**Files involved:**
-- `src/camera.rs` - Either move or keep with callback integration
-- `photo-gallery/src/picker.rs` - New trait/interface for picking
+**Implementation:**
+- `photo-gallery/src/picker.rs` - Full Android JNI picker implementation
+- `src/camera.rs` - Thin compatibility wrapper
+- Configurable via `AndroidPickerConfig { main_activity_class }` 
+- Functions: `pick_image()`, `pick_images()`, `capture_photo()`, `has_camera_permission()`
+- Platform-agnostic error handling with `PickerError` enum
+- Stub implementations for non-Android platforms
 
 ### 4. Components That Load Their Own Data ❌
 
