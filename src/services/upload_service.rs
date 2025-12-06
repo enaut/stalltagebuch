@@ -119,7 +119,7 @@ pub async fn upload_ops_batch(
 /// Counts how many photos are pending upload (sync_status='local_only')
 pub fn count_pending_photos(conn: &Connection) -> Result<usize, AppError> {
     use crate::services::sync_service;
-    
+
     // Get sync settings to create upload service
     let settings = match sync_service::load_sync_settings(conn)? {
         Some(s) if s.enabled => s,
