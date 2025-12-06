@@ -41,9 +41,8 @@ pub fn create_thumbnails(
     log::debug!("Creating thumbnails for UUID: {}", uuid);
 
     // Load original image
-    let img = image::open(original_path).map_err(|e| {
-        ThumbnailError::ImageLoadError(format!("Failed to load image: {}", e))
-    })?;
+    let img = image::open(original_path)
+        .map_err(|e| ThumbnailError::ImageLoadError(format!("Failed to load image: {}", e)))?;
 
     let parent_dir = Path::new(original_path)
         .parent()
@@ -115,10 +114,8 @@ pub async fn rename_photo_with_uuid(
 
             if old_path.exists() {
                 log::debug!("Path exists, copying...");
-                std::fs::copy(old_path, &new_path).map_err(|e| {
-                    ThumbnailError::IoError(e)
-                })?;
-                
+                std::fs::copy(old_path, &new_path).map_err(|e| ThumbnailError::IoError(e))?;
+
                 log::debug!("Copy successful, removing original...");
                 if let Err(e) = std::fs::remove_file(old_path) {
                     log::warn!("Could not remove original: {}", e);

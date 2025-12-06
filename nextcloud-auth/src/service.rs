@@ -35,7 +35,10 @@ impl NextcloudAuthService {
 
     /// Initiate the Nextcloud Login Flow v2
     pub async fn initiate_login(&self) -> Result<LoginFlowInit, AuthError> {
-        let url = format!("{}/index.php/login/v2", self.server_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/index.php/login/v2",
+            self.server_url.trim_end_matches('/')
+        );
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
@@ -128,7 +131,7 @@ impl NextcloudAuthService {
         let flow = self.initiate_login().await?;
 
         log::info!("Login flow initiated. Please visit: {}", flow.login);
-        
+
         // Initial delay to allow user to open browser
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -154,7 +157,7 @@ impl NextcloudAuthService {
                     // Use exponential backoff for errors
                     let backoff = poll_delay_secs.saturating_mul(1 << consecutive_errors.min(2));
                     let wait_time = backoff.min(30);
-                    
+
                     tokio::time::sleep(std::time::Duration::from_secs(wait_time)).await;
                 }
             }

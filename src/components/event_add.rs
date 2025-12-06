@@ -73,9 +73,7 @@ pub fn EventAdd(
                                 // Save photos for this event
                                 for photo_path in photos() {
                                     let _ = crate::services::photo_service::add_event_photo(
-                                        &conn,
-                                        event_id,
-                                        photo_path,
+                                        &conn, event_id, photo_path,
                                         None, // Thumbnails werden im Service erstellt
                                     )
                                     .await;

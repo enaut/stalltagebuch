@@ -59,7 +59,7 @@ impl PhotoSyncService {
             "{}/sync/photos",
             self.config.remote_path.trim_end_matches('/')
         );
-        
+
         // Try to create directory (ignore if already exists)
         let _ = self.ensure_directory(&client, &photos_dir).await;
 
@@ -98,10 +98,9 @@ impl PhotoSyncService {
             .map_err(|e| PhotoGalleryError::Other(format!("Download failed: {:?}", e)))?;
 
         // Convert response to bytes
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| PhotoGalleryError::Other(format!("Failed to read response bytes: {}", e)))?;
+        let bytes = response.bytes().await.map_err(|e| {
+            PhotoGalleryError::Other(format!("Failed to read response bytes: {}", e))
+        })?;
 
         // Save to local storage
         std::fs::write(local_path, bytes)?;
@@ -164,7 +163,7 @@ impl PhotoSyncService {
         max_retries: u32,
     ) -> Result<(), PhotoGalleryError> {
         let mut retries = 0;
-        
+
         loop {
             match self.upload_photo(local_path, relative_path).await {
                 Ok(()) => return Ok(()),
@@ -199,7 +198,7 @@ impl PhotoSyncService {
         max_retries: u32,
     ) -> Result<(), PhotoGalleryError> {
         let mut retries = 0;
-        
+
         loop {
             match self.download_photo(relative_path, local_path).await {
                 Ok(()) => return Ok(()),
@@ -231,7 +230,7 @@ impl PhotoSyncService {
 /// Calculate exponential backoff delay with jitter
 fn calculate_backoff(retry: u32) -> u64 {
     use rand::Rng;
-    
+
     let base_delay = 60 * (1 << (retry - 1).min(4)); // 60s, 120s, 240s, 480s, 960s
     let max_delay = base_delay.min(300); // Cap at 300s (5 minutes)
     let jitter = rand::rng().gen_range(0..=max_delay);

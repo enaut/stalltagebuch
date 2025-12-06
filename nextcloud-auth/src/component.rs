@@ -82,16 +82,16 @@ pub fn NextcloudAuthComponent(props: NextcloudAuthProps) -> Element {
         let server_url = props.server_url.clone();
         let on_success = props.on_success.clone();
         let on_error = props.on_error.clone();
-        
+
         move |_| {
             login_state.set(LoginState::InitiatingFlow);
             let server_url = server_url.clone();
             let on_success = on_success.clone();
             let on_error = on_error.clone();
-            
+
             spawn(async move {
                 let auth_service = NextcloudAuthService::new(server_url);
-                
+
                 match auth_service.initiate_login().await {
                     Ok(flow) => {
                         let poll_url = flow.poll.endpoint.clone();
@@ -113,7 +113,10 @@ pub fn NextcloudAuthComponent(props: NextcloudAuthProps) -> Element {
                             for attempt in 0..60 {
                                 log::debug!("Login polling attempt {}", attempt + 1);
 
-                                let wait_secs = match auth_service.poll_login(&poll_url, &token).await {
+                                let wait_secs = match auth_service
+                                    .poll_login(&poll_url, &token)
+                                    .await
+                                {
                                     Ok(Some(credentials)) => {
                                         log::info!("Login successful!");
                                         login_state.set(LoginState::Success(credentials.clone()));
@@ -127,8 +130,12 @@ pub fn NextcloudAuthComponent(props: NextcloudAuthProps) -> Element {
                                     }
                                     Err(e) => {
                                         consecutive_errors += 1;
-                                        log::warn!("Poll error (attempt {}): {}", consecutive_errors, e);
-                                        
+                                        log::warn!(
+                                            "Poll error (attempt {}): {}",
+                                            consecutive_errors,
+                                            e
+                                        );
+
                                         // Exponential backoff
                                         5u64.saturating_mul(1 << consecutive_errors.min(2)).min(30)
                                     }
@@ -137,7 +144,8 @@ pub fn NextcloudAuthComponent(props: NextcloudAuthProps) -> Element {
                                 tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
                             }
 
-                            let error_msg = "Login timeout - no response after 5 minutes".to_string();
+                            let error_msg =
+                                "Login timeout - no response after 5 minutes".to_string();
                             log::error!("Login timeout");
                             login_state.set(LoginState::Error(error_msg.clone()));
                             if let Some(handler) = on_error {
@@ -169,34 +177,34 @@ pub fn NextcloudAuthComponent(props: NextcloudAuthProps) -> Element {
                     }
                 },
                 LoginState::InitiatingFlow => rsx! {
-                    div { 
+                    div {
                         style: "padding: 12px; background: #fff3cd; border-radius: 4px; text-align: center;",
                         "{labels.connecting}"
                     }
                 },
                 LoginState::WaitingForUser { login_url, poll_url: _, token: _ } => rsx! {
-                    div { 
+                    div {
                         style: "padding: 12px; background: #d1ecf1; border-radius: 4px;",
-                        div { 
+                        div {
                             style: "display: flex; align-items: center; gap: 12px; margin-bottom: 12px;",
-                            div { 
-                                style: "font-size: 32px; animation: spin 2s linear infinite;", 
-                                "💠" 
+                            div {
+                                style: "font-size: 32px; animation: spin 2s linear infinite;",
+                                "💠"
                             }
                             div {
-                                p { 
-                                    style: "margin: 0; font-weight: 600; font-size: 16px;", 
-                                    "{labels.waiting}" 
+                                p {
+                                    style: "margin: 0; font-weight: 600; font-size: 16px;",
+                                    "{labels.waiting}"
                                 }
-                                p { 
+                                p {
                                     style: "margin: 4px 0 0 0; font-size: 12px; color: #666;",
                                     "{labels.polling_background}"
                                 }
                             }
                         }
-                        p { 
-                            style: "margin: 0 0 12px 0; font-size: 14px;", 
-                            "{labels.instructions}" 
+                        p {
+                            style: "margin: 0 0 12px 0; font-size: 14px;",
+                            "{labels.instructions}"
                         }
                         a {
                             href: "{login_url}",
@@ -207,15 +215,15 @@ pub fn NextcloudAuthComponent(props: NextcloudAuthProps) -> Element {
                     }
                 },
                 LoginState::Success(_) => rsx! {
-                    div { 
+                    div {
                         style: "padding: 12px; background: #d4edda; border-radius: 4px; text-align: center; color: #155724;",
                         "{labels.login_success}"
                     }
                 },
                 LoginState::Error(error) => rsx! {
-                    div { 
+                    div {
                         style: "padding: 12px; background: #f8d7da; border-radius: 4px; color: #721c24;",
-                        p { 
+                        p {
                             style: "margin: 0 0 12px 0; font-weight: 600;",
                             "{labels.error_title}"
                         }
@@ -231,13 +239,13 @@ pub fn NextcloudAuthComponent(props: NextcloudAuthProps) -> Element {
             }
 
             // Info box
-            div { 
+            div {
                 style: "margin-top: 16px; padding: 12px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid #0066cc;",
-                p { 
+                p {
                     style: "margin: 0 0 8px 0; font-size: 14px; font-weight: 600;",
                     "{labels.info_title}"
                 }
-                ul { 
+                ul {
                     style: "margin: 0; padding-left: 20px; font-size: 13px; color: #555;",
                     li { "{labels.step1}" }
                     li { "{labels.step2}" }

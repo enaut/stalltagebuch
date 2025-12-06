@@ -37,7 +37,7 @@ pub mod sync;
 
 pub use models::{Photo, PhotoGalleryConfig, PhotoResult, PhotoSize};
 pub use service::{PhotoGalleryError, PhotoGalleryService};
-pub use thumbnail::{ThumbnailError, create_thumbnails, rename_photo_with_uuid};
+pub use thumbnail::{create_thumbnails, rename_photo_with_uuid, ThumbnailError};
 
 #[cfg(feature = "sync")]
 pub use sync::{PhotoSyncConfig, PhotoSyncService};
