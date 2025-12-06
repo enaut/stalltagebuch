@@ -36,6 +36,12 @@ pub mod thumbnail;
 #[cfg(feature = "sync")]
 pub mod sync;
 
+#[cfg(feature = "sync")]
+pub mod upload;
+
+#[cfg(feature = "sync")]
+pub mod download;
+
 #[cfg(feature = "components")]
 pub mod components;
 
@@ -46,6 +52,12 @@ pub use thumbnail::{create_thumbnails, rename_photo_with_uuid, ThumbnailError};
 
 #[cfg(feature = "sync")]
 pub use sync::{PhotoSyncConfig, PhotoSyncService};
+
+#[cfg(feature = "sync")]
+pub use upload::{PhotoUploadConfig, PhotoUploadService, UploadError, UploadResult};
+
+#[cfg(feature = "sync")]
+pub use download::{DownloadError, DownloadResult, PhotoDownloadConfig, PhotoDownloadService};
 
 #[cfg(feature = "components")]
 pub use components::{
