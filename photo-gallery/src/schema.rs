@@ -134,8 +134,24 @@ pub fn migrate_existing_photos_to_collections(conn: &Connection) -> Result<usize
          FROM photos WHERE quail_id IS NOT NULL AND deleted = 0"
     )?;
 
-    let quail_photos: Vec<(String, String, String, Option<String>, Option<String>, Option<String>, Option<String>,
-                           Option<String>, Option<String>, Option<i64>, Option<i32>, String, String, i32, i64, i32)> = stmt
+    let quail_photos: Vec<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<i32>,
+        String,
+        String,
+        i32,
+        i64,
+        i32,
+    )> = stmt
         .query_map([], |row| {
             Ok((
                 row.get(0)?,  // uuid
@@ -159,9 +175,13 @@ pub fn migrate_existing_photos_to_collections(conn: &Connection) -> Result<usize
         .collect::<Result<Vec<_>>>()?;
 
     // Group photos by quail_id and create collections
-    let mut collections: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+    let mut collections: std::collections::HashMap<String, Vec<_>> =
+        std::collections::HashMap::new();
     for photo in quail_photos {
-        collections.entry(photo.1.clone()).or_insert_with(Vec::new).push(photo);
+        collections
+            .entry(photo.1.clone())
+            .or_insert_with(Vec::new)
+            .push(photo);
     }
 
     for (quail_id, photos) in collections {
@@ -171,7 +191,11 @@ pub fn migrate_existing_photos_to_collections(conn: &Connection) -> Result<usize
 
         conn.execute(
             "INSERT INTO photo_collections (uuid, preview_photo_uuid, name) VALUES (?1, ?2, ?3)",
-            rusqlite::params![collection_uuid, preview_photo, format!("Quail {}", quail_id)],
+            rusqlite::params![
+                collection_uuid,
+                preview_photo,
+                format!("Quail {}", quail_id)
+            ],
         )?;
 
         // Update photos to reference this collection
@@ -197,8 +221,24 @@ pub fn migrate_existing_photos_to_collections(conn: &Connection) -> Result<usize
          FROM photos WHERE event_id IS NOT NULL AND deleted = 0"
     )?;
 
-    let event_photos: Vec<(String, String, String, Option<String>, Option<String>, Option<String>, Option<String>,
-                           Option<String>, Option<String>, Option<i64>, Option<i32>, String, String, i32, i64, i32)> = stmt
+    let event_photos: Vec<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<i32>,
+        String,
+        String,
+        i32,
+        i64,
+        i32,
+    )> = stmt
         .query_map([], |row| {
             Ok((
                 row.get(0)?,  // uuid
@@ -221,9 +261,13 @@ pub fn migrate_existing_photos_to_collections(conn: &Connection) -> Result<usize
         })?
         .collect::<Result<Vec<_>>>()?;
 
-    let mut collections: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+    let mut collections: std::collections::HashMap<String, Vec<_>> =
+        std::collections::HashMap::new();
     for photo in event_photos {
-        collections.entry(photo.1.clone()).or_insert_with(Vec::new).push(photo);
+        collections
+            .entry(photo.1.clone())
+            .or_insert_with(Vec::new)
+            .push(photo);
     }
 
     for (event_id, photos) in collections {
@@ -232,7 +276,11 @@ pub fn migrate_existing_photos_to_collections(conn: &Connection) -> Result<usize
 
         conn.execute(
             "INSERT INTO photo_collections (uuid, preview_photo_uuid, name) VALUES (?1, ?2, ?3)",
-            rusqlite::params![collection_uuid, preview_photo, format!("Event {}", event_id)],
+            rusqlite::params![
+                collection_uuid,
+                preview_photo,
+                format!("Event {}", event_id)
+            ],
         )?;
 
         for photo in photos {

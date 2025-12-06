@@ -11,8 +11,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn ThumbnailImage(
     data_url: String,
-    #[props(default = "Photo".to_string())]
-    alt: String,
+    #[props(default = "Photo".to_string())] alt: String,
 ) -> Element {
     rsx! {
         div {
@@ -31,8 +30,7 @@ pub fn ThumbnailImage(
 #[component]
 pub fn PreviewImage(
     data_url: String,
-    #[props(default = "Photo".to_string())]
-    alt: String,
+    #[props(default = "Photo".to_string())] alt: String,
 ) -> Element {
     rsx! {
         div {
@@ -49,10 +47,7 @@ pub fn PreviewImage(
 #[cfg(feature = "components")]
 /// Fullscreen image component - displays a single photo in fullscreen with close button
 #[component]
-pub fn FullscreenImage(
-    data_url: String,
-    on_close: EventHandler<()>,
-) -> Element {
+pub fn FullscreenImage(data_url: String, on_close: EventHandler<()>) -> Element {
     rsx! {
         div {
             style: "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.95); z-index: 1000; display: flex; flex-direction: column;",
@@ -140,8 +135,7 @@ pub fn PreviewCollection(
 #[component]
 pub fn CollectionFullscreen(
     photo_data_urls: Vec<String>,
-    #[props(default = 0)]
-    initial_index: usize,
+    #[props(default = 0)] initial_index: usize,
     on_close: EventHandler<()>,
 ) -> Element {
     let mut current_index = use_signal(|| initial_index);
