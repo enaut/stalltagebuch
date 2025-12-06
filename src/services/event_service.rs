@@ -37,7 +37,8 @@ pub async fn create_event(
         event.event_type.as_str(),
         &event.event_date.to_string(),
         notes.as_deref(),
-    ).await?;
+    )
+    .await?;
 
     Ok(event.uuid)
 }
@@ -194,20 +195,23 @@ pub async fn update_event_full(
         &event_id,
         "event_type",
         serde_json::Value::String(event_type.as_str().to_string()),
-    ).await?;
+    )
+    .await?;
     crate::services::operation_capture::capture_event_update(
         conn,
         &event_id,
         "event_date",
         serde_json::Value::String(event_date.to_string()),
-    ).await?;
+    )
+    .await?;
     if let Some(notes_text) = notes {
         crate::services::operation_capture::capture_event_update(
             conn,
             &event_id,
             "notes",
             serde_json::Value::String(notes_text),
-        ).await?;
+        )
+        .await?;
     }
 
     Ok(())
