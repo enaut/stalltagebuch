@@ -1,7 +1,9 @@
 use crate::error::AppError;
 use crate::models::photo::{PhotoResult, PhotoSize};
 use crate::models::Photo;
-use photo_gallery::{PhotoGalleryConfig, PhotoGalleryService, PhotoSyncConfig, PhotoSyncService};
+use photo_gallery::{
+    create_thumbnails, PhotoGalleryConfig, PhotoGalleryService, PhotoSyncConfig, PhotoSyncService,
+};
 use rusqlite::Connection;
 use std::sync::OnceLock;
 use uuid::Uuid;
@@ -45,7 +47,8 @@ fn convert_error(e: photo_gallery::PhotoGalleryError) -> AppError {
     match e {
         photo_gallery::PhotoGalleryError::DatabaseError(e) => AppError::Database(e),
         photo_gallery::PhotoGalleryError::NotFound(msg) => AppError::NotFound(msg),
-        photo_gallery::PhotoGalleryError::IoError(e) => AppError::IoError(e),
+        // Map IO-related errors from the photo_gallery crate to the app-wide Filesystem error
+        photo_gallery::PhotoGalleryError::IoError(e) => AppError::Filesystem(e),
         photo_gallery::PhotoGalleryError::ThumbnailError(e) => {
             AppError::Other(format!("Thumbnail error: {}", e))
         }
@@ -212,8 +215,7 @@ pub async fn delete_photo(conn: &Connection, photo_uuid: &Uuid) -> Result<(), Ap
         .map_err(convert_error)?;
 
     // Capture CRDT deletion after photo is deleted
-    crate::services::operation_capture::capture_photo_delete(conn, &photo_uuid.to_string())
-        .await?;
+    crate::services::operation_capture::capture_photo_delete(conn, &photo_uuid.to_string()).await?;
 
     Ok(())
 }
@@ -226,9 +228,12 @@ pub async fn get_photo_with_download(
     size: PhotoSize,
 ) -> Result<PhotoResult, AppError> {
     let service = init_photo_service();
-    
+
     // First check if photo is available locally
-    match service.get_photo(conn, photo_uuid, size).map_err(convert_error)? {
+    match service
+        .get_photo(conn, photo_uuid, size)
+        .map_err(convert_error)?
+    {
         PhotoResult::Available(bytes) => return Ok(PhotoResult::Available(bytes)),
         PhotoResult::Downloading => return Ok(PhotoResult::Downloading),
         PhotoResult::Failed(_, retry_count) => {
@@ -345,13 +350,47 @@ async fn download_photo_from_remote(
         .map_err(convert_error)?;
 
     log::info!("Downloaded photo {} to {}", photo_uuid, local_path);
+
+    // After downloading the original, create local thumbnails
+    let uuid_stem = std::path::Path::new(relative_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| AppError::Other("Invalid relative_path for downloaded photo".to_string()))?
+        .to_string();
+
+    // Use configured sizes from the gallery service and run in blocking thread
+    let svc = init_photo_service();
+    let (small_size, medium_size) = svc.thumbnail_sizes();
+
+    let local_clone = local_path.clone();
+    let uuid_clone = uuid_stem.clone();
+
+    match tokio::task::spawn_blocking(move || {
+        create_thumbnails(&local_clone, &uuid_clone, small_size, medium_size)
+    })
+    .await
+    {
+        Ok(Ok((small_name, medium_name))) => {
+            use rusqlite::params;
+
+            // Persist thumbnail filenames in DB (relative paths)
+            let _ = conn.execute(
+                "UPDATE photos SET thumbnail_small_path = ?1, thumbnail_medium_path = ?2 WHERE uuid = ?3",
+                params![small_name, medium_name, photo_uuid.to_string()],
+            );
+        }
+        Ok(Err(e)) => {
+            log::warn!("Failed to create thumbnails for {}: {}", relative_path, e);
+        }
+        Err(e) => {
+            log::warn!("Thumbnail task join error for {}: {}", relative_path, e);
+        }
+    }
     Ok(())
 }
 
 /// Retry all failed downloads that haven't exceeded max retries
 pub async fn retry_failed_downloads(conn: &Connection) -> Result<usize, AppError> {
-    use rusqlite::params;
-
     let mut stmt = conn.prepare(
         "SELECT uuid, COALESCE(relative_path, path), retry_count
          FROM photos 

@@ -61,12 +61,24 @@ impl PhotoGalleryService {
         if self.config.storage_path.is_empty() {
             relative_path.to_string()
         } else {
-            format!("{}/{}", self.config.storage_path.trim_end_matches('/'), relative_path)
+            format!(
+                "{}/{}",
+                self.config.storage_path.trim_end_matches('/'),
+                relative_path
+            )
         }
     }
 
+    /// Return configured thumbnail sizes (small, medium)
+    pub fn thumbnail_sizes(&self) -> (u32, u32) {
+        (
+            self.config.thumbnail_small_size,
+            self.config.thumbnail_medium_size,
+        )
+    }
+
     /// Add a photo for a quail
-    /// 
+    ///
     /// Returns the UUID of the created photo. The caller is responsible for
     /// any additional operations like CRDT operation capture.
     pub async fn add_quail_photo(
@@ -85,10 +97,10 @@ impl PhotoGalleryService {
             self.config.thumbnail_medium_size,
         )
         .await?;
-        
+
         let uuid = Uuid::parse_str(new_path.trim_end_matches(".jpg"))
             .map_err(|_| PhotoGalleryError::Other("Invalid UUID from filename".to_string()))?;
-        
+
         log::debug!("UUID extracted: {}", uuid);
         log::debug!("Thumbnails: small={}, medium={}", small_thumb, medium_thumb);
 
@@ -108,7 +120,7 @@ impl PhotoGalleryService {
     }
 
     /// Add a photo for an event
-    /// 
+    ///
     /// Returns the UUID of the created photo. The caller is responsible for
     /// any additional operations like CRDT operation capture.
     pub async fn add_event_photo(
@@ -124,7 +136,7 @@ impl PhotoGalleryService {
             self.config.thumbnail_medium_size,
         )
         .await?;
-        
+
         let uuid = Uuid::parse_str(new_path.trim_end_matches(".jpg"))
             .map_err(|_| PhotoGalleryError::Other("Invalid UUID from filename".to_string()))?;
 
@@ -155,7 +167,7 @@ impl PhotoGalleryService {
              FROM photos 
              WHERE quail_id = ?1 AND deleted = 0",
         )?;
-        
+
         let rows = stmt.query_map(params![quail_uuid.to_string()], |row| {
             let uuid_str: String = row.get(0)?;
             let quail_id_str: Option<String> = row.get(1)?;
@@ -181,7 +193,7 @@ impl PhotoGalleryService {
                 retry_count,
             })
         })?;
-        
+
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
@@ -197,7 +209,7 @@ impl PhotoGalleryService {
              FROM photos 
              WHERE event_id = ?1 AND deleted = 0",
         )?;
-        
+
         let rows = stmt.query_map(params![event_uuid.to_string()], |row| {
             let uuid_str: String = row.get(0)?;
             let quail_id_str: Option<String> = row.get(1)?;
@@ -223,7 +235,7 @@ impl PhotoGalleryService {
                 retry_count,
             })
         })?;
-        
+
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
@@ -240,7 +252,7 @@ impl PhotoGalleryService {
              JOIN quails q ON q.profile_photo = p.uuid 
              WHERE q.uuid = ?1",
         )?;
-        
+
         let res = stmt
             .query_row(params![quail_uuid.to_string()], |row| {
                 let uuid_str: String = row.get(0)?;
@@ -261,19 +273,20 @@ impl PhotoGalleryService {
                     path: self.get_absolute_photo_path(&relative_path),
                     thumbnail_path: relative_thumb.map(|t| self.get_absolute_photo_path(&t)),
                     thumbnail_small_path: thumbnail_small.map(|t| self.get_absolute_photo_path(&t)),
-                    thumbnail_medium_path: thumbnail_medium.map(|t| self.get_absolute_photo_path(&t)),
+                    thumbnail_medium_path: thumbnail_medium
+                        .map(|t| self.get_absolute_photo_path(&t)),
                     sync_status,
                     sync_error,
                     retry_count,
                 })
             })
             .optional()?;
-        
+
         Ok(res)
     }
 
     /// Delete a photo
-    /// 
+    ///
     /// The caller is responsible for any additional operations like CRDT operation capture.
     pub async fn delete_photo(
         &self,
@@ -284,7 +297,7 @@ impl PhotoGalleryService {
             "DELETE FROM photos WHERE uuid = ?1",
             params![photo_uuid.to_string()],
         )?;
-        
+
         if rows == 0 {
             return Err(PhotoGalleryError::NotFound("Photo not found".into()));
         }
@@ -318,7 +331,8 @@ impl PhotoGalleryService {
             )
             .optional()?;
 
-        let (relative_path, small_thumb, medium_thumb, sync_status, retry_count) = match photo_info {
+        let (relative_path, small_thumb, medium_thumb, sync_status, retry_count) = match photo_info
+        {
             Some(info) => info,
             None => return Err(PhotoGalleryError::NotFound("Photo not found".into())),
         };
