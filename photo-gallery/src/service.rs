@@ -183,6 +183,7 @@ impl PhotoGalleryService {
             Ok(Photo {
                 uuid: Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
                 quail_id: quail_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
+                collection_id: None,
                 event_id: event_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                 path: self.get_absolute_photo_path(&relative_path),
                 thumbnail_path: relative_thumb.map(|t| self.get_absolute_photo_path(&t)),
@@ -225,6 +226,7 @@ impl PhotoGalleryService {
             Ok(Photo {
                 uuid: Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
                 quail_id: quail_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
+                collection_id: None,
                 event_id: event_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                 path: self.get_absolute_photo_path(&relative_path),
                 thumbnail_path: relative_thumb.map(|t| self.get_absolute_photo_path(&t)),
@@ -269,6 +271,7 @@ impl PhotoGalleryService {
                 Ok(Photo {
                     uuid: Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
                     quail_id: quail_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
+                collection_id: None,
                     event_id: event_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                     path: self.get_absolute_photo_path(&relative_path),
                     thumbnail_path: relative_thumb.map(|t| self.get_absolute_photo_path(&t)),

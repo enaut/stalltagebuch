@@ -29,15 +29,26 @@
 //! ```
 
 pub mod models;
+pub mod schema;
 pub mod service;
 pub mod thumbnail;
 
 #[cfg(feature = "sync")]
 pub mod sync;
 
-pub use models::{Photo, PhotoGalleryConfig, PhotoResult, PhotoSize};
+#[cfg(feature = "components")]
+pub mod components;
+
+pub use models::{Photo, PhotoCollection, PhotoGalleryConfig, PhotoResult, PhotoSize};
+pub use schema::{init_photo_schema, migrate_existing_photos_to_collections};
 pub use service::{PhotoGalleryError, PhotoGalleryService};
 pub use thumbnail::{create_thumbnails, rename_photo_with_uuid, ThumbnailError};
 
 #[cfg(feature = "sync")]
 pub use sync::{PhotoSyncConfig, PhotoSyncService};
+
+#[cfg(feature = "components")]
+pub use components::{
+    CollectionFullscreen, FullscreenImage, PreviewCollection, PreviewImage, ThumbnailCollection,
+    ThumbnailImage,
+};

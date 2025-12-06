@@ -1,12 +1,29 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Represents a collection of photos
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PhotoCollection {
+    pub uuid: Uuid,
+    pub preview_photo_uuid: Option<Uuid>,
+    pub name: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// Represents a photo with metadata
+/// Supports both old schema (quail_id/event_id) and new schema (collection_id)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Photo {
     pub uuid: Uuid,
+    // Old schema (deprecated, for backward compatibility)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub quail_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub event_id: Option<Uuid>,
+    // New schema
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<Uuid>,
     pub path: String,
     pub thumbnail_path: Option<String>,
     pub thumbnail_small_path: Option<String>,
