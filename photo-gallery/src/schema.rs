@@ -58,54 +58,81 @@ fn create_photo_schema_v1(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // Table: photos - individual photos within collections
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS photos (
-            uuid TEXT PRIMARY KEY,
-            collection_id TEXT,
-            path TEXT NOT NULL,
-            relative_path TEXT,
-            thumbnail_path TEXT,
-            thumbnail_small_path TEXT,
-            thumbnail_medium_path TEXT,
-            sync_status TEXT DEFAULT 'local_only' CHECK(sync_status IN ('local_only', 'uploading', 'synced', 'download_pending', 'downloading', 'download_failed')),
-            sync_error TEXT,
-            last_sync_attempt INTEGER,
-            retry_count INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            rev INTEGER NOT NULL DEFAULT 0,
-            logical_clock INTEGER NOT NULL DEFAULT 0,
-            deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1)),
-            FOREIGN KEY (collection_id) REFERENCES photo_collections(uuid) ON DELETE CASCADE
-        )",
-        [],
-    )?;
+    // Check if photos table already exists (from main crate schema)
+    let photos_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='photos'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
 
-    // Index for photos by collection
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_photos_collection ON photos(collection_id)",
-        [],
-    )?;
+    if photos_exists {
+        // Photos table already exists from main crate - just add collection_id column if needed
+        let has_collection_id: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('photos') WHERE name='collection_id'",
+                [],
+                |row| row.get::<_, i32>(0).map(|c| c > 0),
+            )
+            .unwrap_or(false);
 
-    // Index for photos sync status
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_photos_sync_status ON photos(sync_status)",
-        [],
-    )?;
+        if !has_collection_id {
+            conn.execute("ALTER TABLE photos ADD COLUMN collection_id TEXT", [])?;
+        }
 
-    // Trigger for updated_at in photos
-    conn.execute(
-        "CREATE TRIGGER IF NOT EXISTS update_photos_timestamp 
-         AFTER UPDATE ON photos
-         BEGIN
-            UPDATE photos SET updated_at = CURRENT_TIMESTAMP WHERE uuid = NEW.uuid;
-         END",
-        [],
-    )?;
+        // Create index for collection_id if it doesn't exist
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_photos_collection ON photos(collection_id)",
+            [],
+        )?;
+    } else {
+        // Photos table doesn't exist yet - create it (standalone photo-gallery usage)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS photos (
+                uuid TEXT PRIMARY KEY,
+                collection_id TEXT,
+                path TEXT NOT NULL,
+                relative_path TEXT,
+                thumbnail_path TEXT,
+                thumbnail_small_path TEXT,
+                thumbnail_medium_path TEXT,
+                sync_status TEXT DEFAULT 'local_only' CHECK(sync_status IN ('local_only', 'uploading', 'synced', 'download_pending', 'downloading', 'download_failed')),
+                sync_error TEXT,
+                last_sync_attempt INTEGER,
+                retry_count INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                rev INTEGER NOT NULL DEFAULT 0,
+                logical_clock INTEGER NOT NULL DEFAULT 0,
+                deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1)),
+                FOREIGN KEY (collection_id) REFERENCES photo_collections(uuid) ON DELETE CASCADE
+            )",
+            [],
+        )?;
 
-    // Add FK constraint for preview_photo_uuid after photos table exists
-    // Note: SQLite doesn't support adding FKs after table creation, but we can check it in code
+        // Index for photos by collection
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_photos_collection ON photos(collection_id)",
+            [],
+        )?;
+
+        // Index for photos sync status
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_photos_sync_status ON photos(sync_status)",
+            [],
+        )?;
+
+        // Trigger for updated_at in photos
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS update_photos_timestamp 
+             AFTER UPDATE ON photos
+             BEGIN
+                UPDATE photos SET updated_at = CURRENT_TIMESTAMP WHERE uuid = NEW.uuid;
+             END",
+            [],
+        )?;
+    }
 
     Ok(())
 }
@@ -201,14 +228,8 @@ pub fn migrate_existing_photos_to_collections(conn: &Connection) -> Result<usize
         // Update photos to reference this collection
         for photo in photos {
             conn.execute(
-                "INSERT OR REPLACE INTO photos (uuid, collection_id, path, relative_path, thumbnail_path, 
-                    thumbnail_small_path, thumbnail_medium_path, sync_status, sync_error, last_sync_attempt, 
-                    retry_count, created_at, updated_at, rev, logical_clock, deleted)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-                rusqlite::params![
-                    photo.0, collection_uuid, photo.2, photo.3, photo.4, photo.5, photo.6,
-                    photo.7, photo.8, photo.9, photo.10, photo.11, photo.12, photo.13, photo.14, photo.15
-                ],
+                "UPDATE photos SET collection_id = ?1 WHERE uuid = ?2",
+                rusqlite::params![collection_uuid, photo.0],
             )?;
             migrated += 1;
         }
@@ -285,14 +306,8 @@ pub fn migrate_existing_photos_to_collections(conn: &Connection) -> Result<usize
 
         for photo in photos {
             conn.execute(
-                "INSERT OR REPLACE INTO photos (uuid, collection_id, path, relative_path, thumbnail_path, 
-                    thumbnail_small_path, thumbnail_medium_path, sync_status, sync_error, last_sync_attempt, 
-                    retry_count, created_at, updated_at, rev, logical_clock, deleted)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-                rusqlite::params![
-                    photo.0, collection_uuid, photo.2, photo.3, photo.4, photo.5, photo.6,
-                    photo.7, photo.8, photo.9, photo.10, photo.11, photo.12, photo.13, photo.14, photo.15
-                ],
+                "UPDATE photos SET collection_id = ?1 WHERE uuid = ?2",
+                rusqlite::params![collection_uuid, photo.0],
             )?;
             migrated += 1;
         }
