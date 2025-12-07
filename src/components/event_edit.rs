@@ -104,7 +104,15 @@ fn EventPhotoGallery(event_id: String, photos: Signal<Vec<crate::models::Photo>>
                                 }
                             }
                             if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
-                                if let Ok(list) = photo_service::list_event_photos(&conn, &e_uuid) {
+                                // Reload photos using collection-based API
+                                let photo_list = match crate::services::photo_service::get_event_collection(&conn, &e_uuid) {
+                                    Ok(Some(collection_id)) => {
+                                        crate::services::photo_service::list_collection_photos(&conn, &collection_id).ok()
+                                    }
+                                    _ => None,
+                                }.or_else(|| photo_service::list_event_photos(&conn, &e_uuid).ok());
+
+                                if let Some(list) = photo_list {
                                     photos.set(list);
                                 }
                             }
@@ -169,9 +177,24 @@ pub fn EventEditScreen(
                     Ok(None) => error.set(t!("event-not-found")),
                     Err(e) => error.set(t!("error-loading", error: e.to_string())),
                 }
-                match photo_service::list_event_photos(&conn, &e_uuid) {
-                    Ok(list) => photos.set(list),
-                    Err(e) => log::error!("Fehler beim Laden der Event-Fotos: {}", e),
+                // Load photos using collection-based API
+                let photo_list =
+                    match crate::services::photo_service::get_event_collection(&conn, &e_uuid) {
+                        Ok(Some(collection_id)) => {
+                            crate::services::photo_service::list_collection_photos(
+                                &conn,
+                                &collection_id,
+                            )
+                            .ok()
+                        }
+                        _ => None,
+                    }
+                    .or_else(|| photo_service::list_event_photos(&conn, &e_uuid).ok());
+
+                if let Some(list) = photo_list {
+                    photos.set(list);
+                } else {
+                    log::error!("Fehler beim Laden der Event-Fotos");
                 }
             }
         }
@@ -345,21 +368,28 @@ pub fn EventEditScreen(
                                                 Ok(paths) => {
                                                     if let Ok(conn) = database::init_database() {
                                                         if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
-                                                            for p in paths {
-                                                                let ps = p.to_string_lossy().to_string();
-                                                                let _ = photo_service::add_event_photo(
+                                                            // Get or create collection for this event
+                                                            match crate::services::photo_service::get_or_create_event_collection(&conn, &e_uuid) {
+                                                                Ok(collection_id) => {
+                                                                    for p in paths {
+                                                                        let ps = p.to_string_lossy().to_string();
+                                                                        let _ = crate::services::photo_service::add_photo_to_collection(
+                                                                                &conn,
+                                                                                &collection_id,
+                                                                                ps,
+                                                                            )
+                                                                            .await;
+                                                                    }
+                                                                    if let Ok(list) = crate::services::photo_service::list_collection_photos(
                                                                         &conn,
-                                                                        e_uuid,
-                                                                        ps,
-                                                                        None,
-                                                                    )
-                                                                    .await;
-                                                            }
-                                                            if let Ok(list) = photo_service::list_event_photos(
-                                                                &conn,
-                                                                &e_uuid,
-                                                            ) {
-                                                                photos.set(list);
+                                                                        &collection_id,
+                                                                    ) {
+                                                                        photos.set(list);
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    log::error!("Failed to create event collection: {}", e);
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -401,18 +431,25 @@ pub fn EventEditScreen(
                                                     if let Ok(conn) = database::init_database() {
                                                         if let Ok(e_uuid) = uuid::Uuid::parse_str(&event_id_clone) {
                                                             let ps = p.to_string_lossy().to_string();
-                                                            let _ = photo_service::add_event_photo(
-                                                                    &conn,
-                                                                    e_uuid,
-                                                                    ps,
-                                                                    None,
-                                                                )
-                                                                .await;
-                                                            if let Ok(list) = photo_service::list_event_photos(
-                                                                &conn,
-                                                                &e_uuid,
-                                                            ) {
-                                                                photos.set(list);
+                                                            // Get or create collection for this event
+                                                            match crate::services::photo_service::get_or_create_event_collection(&conn, &e_uuid) {
+                                                                Ok(collection_id) => {
+                                                                    let _ = crate::services::photo_service::add_photo_to_collection(
+                                                                            &conn,
+                                                                            &collection_id,
+                                                                            ps,
+                                                                        )
+                                                                        .await;
+                                                                    if let Ok(list) = crate::services::photo_service::list_collection_photos(
+                                                                        &conn,
+                                                                        &collection_id,
+                                                                    ) {
+                                                                        photos.set(list);
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    log::error!("Failed to create event collection: {}", e);
+                                                                }
                                                             }
                                                         }
                                                     }

@@ -1,10 +1,22 @@
 use crate::database;
 use crate::image_processing;
 use crate::models::{Quail, QuailEvent};
-use crate::services::{event_service, profile_service};
+use crate::services::{event_service, photo_service, profile_service};
 use crate::Screen;
 use dioxus::prelude::*;
 use dioxus_i18n::t;
+
+/// Helper function to resolve photo path to absolute path
+/// Handles both full paths (starting with /) and relative filenames
+fn resolve_photo_path(path: &str) -> String {
+    if path.starts_with('/') {
+        // Already an absolute path
+        path.to_string()
+    } else {
+        // Relative path or just filename - use photo service to get absolute path
+        photo_service::get_absolute_photo_path(path)
+    }
+}
 
 #[component]
 pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) -> Element {
@@ -34,15 +46,36 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
         });
     });
 
-    // Alle Bilder der Wachtel laden
+    // Alle Bilder der Wachtel laden (using collection-based API)
     let quail_id_for_photos = quail_id.clone();
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
             if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_for_photos) {
-                if let Ok(photo_list) =
-                    crate::services::photo_service::list_quail_photos(&conn, &uuid)
-                {
-                    photos.set(photo_list);
+                // Try collection-based API first, fall back to old API
+                let photo_list =
+                    match crate::services::photo_service::get_quail_collection(&conn, &uuid) {
+                        Ok(Some(collection_id)) => {
+                            crate::services::photo_service::list_collection_photos(
+                                &conn,
+                                &collection_id,
+                            )
+                            .ok()
+                        }
+                        _ => None,
+                    }
+                    .or_else(|| {
+                        crate::services::photo_service::list_quail_photos(&conn, &uuid).ok()
+                    });
+
+                if let Some(list) = photo_list {
+                    let len = list.len();
+                    photos.set(list);
+                    // Reset photo index if it's out of bounds
+                    if current_photo_index() >= len && len > 0 {
+                        current_photo_index.set(len - 1);
+                    } else if len == 0 {
+                        current_photo_index.set(0);
+                    }
                 }
             }
         }
@@ -112,11 +145,15 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                     None
                                 };
                                 if let Some(profile_photo) = profile_photo_opt {
+                                    // Prefer medium thumbnail, then small, then original
                                     let path_to_use = profile_photo
-                                        .thumbnail_path
+                                        .thumbnail_medium_path
                                         .clone()
+                                        .or(profile_photo.thumbnail_small_path.clone())
+                                        .or(profile_photo.thumbnail_path.clone())
                                         .unwrap_or(profile_photo.path.clone());
-                                    match image_processing::image_path_to_data_url(&path_to_use) {
+                                    let absolute_path = resolve_photo_path(&path_to_use);
+                                    match image_processing::image_path_to_data_url(&absolute_path) {
                                         Ok(data_url) => rsx! {
                                             img {
                                                 src: data_url,
@@ -129,17 +166,26 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                                 }
                                             }
                                         },
-                                        Err(_) => rsx! {
-                                            div { style: "font-size: 48px; color:#999;", "🐦" }
+                                        Err(e) => rsx! {
+                                            div { style: "font-size: 48px; color:#999; display:flex; flex-direction:column; align-items:center;",
+                                                "🐦"
+                                                div { style: "font-size: 10px; color:#c66; margin-top: 4px; word-break: break-all; padding: 0 8px;",
+                                                    "{e}"
+                                                }
+                                            }
                                         },
                                     }
                                 } else if !photos().is_empty() {
                                     let first_photo = &photos()[0];
+                                    // Prefer medium thumbnail, then small, then original
                                     let path_to_use = first_photo
-                                        .thumbnail_path
+                                        .thumbnail_medium_path
                                         .clone()
+                                        .or(first_photo.thumbnail_small_path.clone())
+                                        .or(first_photo.thumbnail_path.clone())
                                         .unwrap_or(first_photo.path.clone());
-                                    match image_processing::image_path_to_data_url(&path_to_use) {
+                                    let absolute_path = resolve_photo_path(&path_to_use);
+                                    match image_processing::image_path_to_data_url(&absolute_path) {
                                         Ok(data_url) => rsx! {
                                             img {
                                                 src: data_url,
@@ -152,8 +198,13 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                                 }
                                             }
                                         },
-                                        Err(_) => rsx! {
-                                            div { style: "font-size: 48px; color:#999;", "🐦" }
+                                        Err(e) => rsx! {
+                                            div { style: "font-size: 48px; color:#999; display:flex; flex-direction:column; align-items:center;",
+                                                "🐦"
+                                                div { style: "font-size: 10px; color:#c66; margin-top: 4px; word-break: break-all; padding: 0 8px;",
+                                                    "{e}"
+                                                }
+                                            }
                                         },
                                     }
                                 } else {
@@ -175,54 +226,61 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                     upload_error.set(String::new());
                                     #[cfg(target_os = "android")]
                                     let quail_id_clone = quail_id_for_gallery.clone();
-                                spawn(async move {
-                                    #[cfg(target_os = "android")]
-                                    {
-                                        match crate::camera::pick_images() {
-                                            Ok(paths) => {
-                                                if let Ok(conn) = database::init_database() {
-                                                    let mut first = true;
-                                                    for pth in paths {
-                                                        let path_str = pth.to_string_lossy().to_string();
-                                                        let _is_profile = first && photos().is_empty();
+                                    spawn(async move {
+                                        #[cfg(target_os = "android")]
+                                        {
+                                            match crate::camera::pick_images() {
+                                                Ok(paths) => {
+                                                    if let Ok(conn) = database::init_database() {
                                                         if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
-                                                            match crate::services::photo_service::add_quail_photo(
+                                                            match crate::services::photo_service::get_or_create_quail_collection(
                                                                 &conn,
-                                                                uuid,
-                                                                path_str,
-                                                                None, // Thumbnails werden im Service erstellt
-                                                            ).await {
-                                                                Ok(_) => {}
+                                                                &uuid,
+                                                            ) {
+                                                                Ok(collection_id) => {
+                                                                    for pth in paths {
+                                                                        let path_str = pth.to_string_lossy().to_string();
+                                                                        match crate::services::photo_service::add_photo_to_collection(
+                                                                                &conn,
+                                                                                &collection_id,
+                                                                                path_str,
+                                                                            )
+                                                                            .await
+                                                                        {
+                                                                            Ok(_) => {}
+                                                                            Err(e) => {
+                                                                                upload_error.set(format!("Fehler beim Speichern: {}", e));
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    if let Ok(photo_list) = crate::services::photo_service::list_collection_photos(
+                                                                        &conn,
+                                                                        &collection_id,
+                                                                    ) {
+                                                                        photos.set(photo_list);
+                                                                    }
+                                                                }
                                                                 Err(e) => {
-                                                                    upload_error.set(format!("Fehler beim Speichern: {}", e));
-                                                                    break;
+                                                                    upload_error
+                                                                        .set(format!("Fehler beim Erstellen der Sammlung: {}", e));
                                                                 }
                                                             }
                                                         }
-                                                        first = false;
-                                                    }
-                                                    if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
-                                                        if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
-                                                            &conn,
-                                                            &uuid,
-                                                        ) {
-                                                            photos.set(photo_list);
-                                                        }
                                                     }
                                                 }
-                                            }
-                                            Err(e) => {
-                                                upload_error
-                                                    .set(format!("{}: {}", t!("error-selection-failed"), e))
+                                                Err(e) => {
+                                                    upload_error
+                                                        .set(format!("{}: {}", t!("error-selection-failed"), e))
+                                                }
                                             }
                                         }
-                                    }
-                                    #[cfg(not(target_os = "android"))]
-                                    {
-                                        upload_error.set(t!("error-multiselect-android-only"));
-                                    }
-                                    uploading.set(false);
-                                });
+                                        #[cfg(not(target_os = "android"))]
+                                        {
+                                            upload_error.set(t!("error-multiselect-android-only"));
+                                        }
+                                        uploading.set(false);
+                                    });
                                 }
                             },
                             if uploading() {
@@ -244,47 +302,59 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                     #[cfg(target_os = "android")]
                                     let quail_id_clone = quail_id_for_camera.clone();
                                     spawn(async move {
-                                    #[cfg(target_os = "android")]
-                                    {
-                                        match crate::camera::capture_photo() {
-                                            Ok(path) => {
-                                                if let Ok(conn) = database::init_database() {
-                                                    let path_str = path.to_string_lossy().to_string();
-                                                    if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
-                                                        match crate::services::photo_service::add_quail_photo(
-                                                            &conn,
-                                                            uuid,
-                                                            path_str,
-                                                            None, // Thumbnails werden im Service erstellt
-                                                        ).await {
-                                                            Ok(_) => {
-                                                                if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
-                                                                    &conn,
-                                                                    &uuid,
-                                                                ) {
-                                                                    photos.set(photo_list);
+                                        #[cfg(target_os = "android")]
+                                        {
+                                            match crate::camera::capture_photo() {
+                                                Ok(path) => {
+                                                    if let Ok(conn) = database::init_database() {
+                                                        let path_str = path.to_string_lossy().to_string();
+                                                        if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
+                                                            match crate::services::photo_service::get_or_create_quail_collection(
+                                                                &conn,
+                                                                &uuid,
+                                                            ) {
+                                                                Ok(collection_id) => {
+                                                                    match crate::services::photo_service::add_photo_to_collection(
+                                                                            &conn,
+                                                                            &collection_id,
+                                                                            path_str,
+                                                                        )
+                                                                        .await
+                                                                    {
+                                                                        Ok(_) => {
+                                                                            if let Ok(photo_list) = crate::services::photo_service::list_collection_photos(
+                                                                                &conn,
+                                                                                &collection_id,
+                                                                            ) {
+                                                                                photos.set(photo_list);
+                                                                            }
+                                                                        }
+                                                                        Err(e) => {
+                                                                            upload_error
+                                                                                .set(format!("{}: {}", t!("error-save-failed"), e))
+                                                                        }
+                                                                    }
                                                                 }
-                                                            }
-                                                            Err(e) => {
-                                                                upload_error
-                                                                    .set(format!("{}: {}", t!("error-save-failed"), e))
+                                                                Err(e) => {
+                                                                    upload_error
+                                                                        .set(format!("{}: {}", t!("error-collection-failed"), e))
+                                                                }
                                                             }
                                                         }
                                                     }
                                                 }
-                                            }
-                                            Err(e) => {
-                                                upload_error
-                                                    .set(format!("{}: {}", t!("error-capture-failed"), e))
+                                                Err(e) => {
+                                                    upload_error
+                                                        .set(format!("{}: {}", t!("error-capture-failed"), e))
+                                                }
                                             }
                                         }
-                                    }
-                                    #[cfg(not(target_os = "android"))]
-                                    {
-                                        upload_error.set(t!("error-camera-android-only"));
-                                    }
-                                    uploading.set(false);
-                                });
+                                        #[cfg(not(target_os = "android"))]
+                                        {
+                                            upload_error.set(t!("error-camera-android-only"));
+                                        }
+                                        uploading.set(false);
+                                    });
                                 }
                             },
                             if uploading() {
@@ -497,18 +567,41 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                         style: "flex:1; display:flex; align-items:center; justify-content:center; padding:16px;",
                         onclick: move |e| e.stop_propagation(),
                         {
-                            let current_photo = &photos()[current_photo_index()];
-                            let full_path = current_photo.path.clone();
-                            match image_processing::image_path_to_data_url(&full_path) {
-                                Ok(data_url) => rsx! {
-                                    img {
-                                        src: data_url,
-                                        style: "max-width:100%; max-height:100%; object-fit:contain;",
-                                    }
-                                },
-                                Err(_) => rsx! {
-                                    div { style: "color:white; font-size:48px;", "⚠️" }
-                                },
+                            let idx = current_photo_index();
+                            let photo_vec = photos();
+                            if idx < photo_vec.len() {
+                                let current_photo = &photo_vec[idx];
+                                // For fullscreen, use original or medium thumbnail
+                                let path_to_use = if current_photo.path.starts_with('/') {
+                                    current_photo.path.clone()
+                                } else {
+                                    current_photo.thumbnail_medium_path.clone()
+                                        .unwrap_or(current_photo.path.clone())
+                                };
+                                let full_path = resolve_photo_path(&path_to_use);
+                                match image_processing::image_path_to_data_url(&full_path) {
+                                    Ok(data_url) => rsx! {
+                                        img {
+                                            src: data_url,
+                                            style: "max-width:100%; max-height:100%; object-fit:contain;",
+                                        }
+                                    },
+                                    Err(e) => rsx! {
+                                        div { style: "color:white; display:flex; flex-direction:column; align-items:center;",
+                                            div { style: "font-size:48px;", "⚠️" }
+                                            div { style: "font-size: 12px; color:#faa; margin-top: 8px; text-align:center; padding: 0 16px; word-break: break-all;",
+                                                "Fehler: {e}"
+                                            }
+                                            div { style: "font-size: 10px; color:#888; margin-top: 4px;",
+                                                "Pfad: {full_path}"
+                                            }
+                                        }
+                                    },
+                                }
+                            } else {
+                                rsx! {
+                                    div { style: "color:white; font-size:24px;", "No photo available" }
+                                }
                             }
                         }
                     }

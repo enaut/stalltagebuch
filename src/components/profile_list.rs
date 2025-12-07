@@ -113,12 +113,12 @@ pub fn ProfileListScreen(on_navigate: EventHandler<Screen>) -> Element {
 pub fn ProfileCard(profile: Quail, on_click: EventHandler<()>) -> Element {
     let profile_uuid = profile.uuid;
 
-#[derive(Clone)]
-enum ImageState {
-    Loading,
-    Available(String),
-    Failed,
-}
+    #[derive(Clone)]
+    enum ImageState {
+        Loading,
+        Available(String),
+        Failed,
+    }
 
     // Lade Profilfoto über photo_service
     let image_data = use_resource(move || async move {
@@ -127,15 +127,27 @@ enum ImageState {
             match services::photo_service::get_profile_photo(&conn, &profile_uuid) {
                 Ok(Some(photo)) => {
                     // Use get_photo_with_download to handle downloading
-                    match services::photo_service::get_photo_with_download(&conn, &photo.uuid, crate::models::photo::PhotoSize::Small).await {
+                    match services::photo_service::get_photo_with_download(
+                        &conn,
+                        &photo.uuid,
+                        crate::models::photo::PhotoSize::Small,
+                    )
+                    .await
+                    {
                         Ok(crate::models::photo::PhotoResult::Available(bytes)) => {
                             // Convert bytes to data URL
-                            let data_url = format!("data:image/webp;base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes));
+                            let data_url = format!(
+                                "data:image/webp;base64,{}",
+                                base64::engine::general_purpose::STANDARD.encode(&bytes)
+                            );
                             log::debug!("Profilbild geladen für UUID: {}", profile_uuid);
                             ImageState::Available(data_url)
                         }
                         Ok(crate::models::photo::PhotoResult::Downloading) => {
-                            log::debug!("Profilbild wird heruntergeladen für UUID: {}", profile_uuid);
+                            log::debug!(
+                                "Profilbild wird heruntergeladen für UUID: {}",
+                                profile_uuid
+                            );
                             ImageState::Loading
                         }
                         Ok(crate::models::photo::PhotoResult::Failed(error, retry_count)) => {
@@ -192,7 +204,11 @@ enum ImageState {
             div { class: "profile-image",
                 match image_data() {
                     Some(ImageState::Loading) => rsx! {
-                        div { class: "profile-image-placeholder", style: "display: flex; align-items: center; justify-content: center; font-size: 24px;", "⏳" }
+                        div {
+                            class: "profile-image-placeholder",
+                            style: "display: flex; align-items: center; justify-content: center; font-size: 24px;",
+                            "⏳"
+                        }
                     },
                     Some(ImageState::Available(data_url)) => rsx! {
                         img {
