@@ -4,7 +4,7 @@ use crate::models::Photo;
 use photo_gallery::{
     create_thumbnails, PhotoGalleryConfig, PhotoGalleryService, PhotoSyncConfig, PhotoSyncService,
 };
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::sync::OnceLock;
 use uuid::Uuid;
 

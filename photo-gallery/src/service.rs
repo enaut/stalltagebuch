@@ -186,12 +186,14 @@ impl PhotoGalleryService {
                 collection_id: None,
                 event_id: event_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                 path: self.get_absolute_photo_path(&relative_path),
+                relative_path: Some(relative_path.clone()),
                 thumbnail_path: relative_thumb.map(|t| self.get_absolute_photo_path(&t)),
                 thumbnail_small_path: thumbnail_small.map(|t| self.get_absolute_photo_path(&t)),
                 thumbnail_medium_path: thumbnail_medium.map(|t| self.get_absolute_photo_path(&t)),
                 sync_status,
                 sync_error,
                 retry_count,
+                created_at: None,
             })
         })?;
 
@@ -229,12 +231,14 @@ impl PhotoGalleryService {
                 collection_id: None,
                 event_id: event_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                 path: self.get_absolute_photo_path(&relative_path),
+                relative_path: Some(relative_path.clone()),
                 thumbnail_path: relative_thumb.map(|t| self.get_absolute_photo_path(&t)),
                 thumbnail_small_path: thumbnail_small.map(|t| self.get_absolute_photo_path(&t)),
                 thumbnail_medium_path: thumbnail_medium.map(|t| self.get_absolute_photo_path(&t)),
                 sync_status,
                 sync_error,
                 retry_count,
+                created_at: None,
             })
         })?;
 
@@ -274,6 +278,7 @@ impl PhotoGalleryService {
                     collection_id: None,
                     event_id: event_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                     path: self.get_absolute_photo_path(&relative_path),
+                    relative_path: Some(relative_path.clone()),
                     thumbnail_path: relative_thumb.map(|t| self.get_absolute_photo_path(&t)),
                     thumbnail_small_path: thumbnail_small.map(|t| self.get_absolute_photo_path(&t)),
                     thumbnail_medium_path: thumbnail_medium
@@ -281,6 +286,7 @@ impl PhotoGalleryService {
                     sync_status,
                     sync_error,
                     retry_count,
+                    created_at: None,
                 })
             })
             .optional()?;
@@ -445,9 +451,11 @@ impl PhotoGalleryService {
 
         let photos = stmt
             .query_map(params![collection_id.to_string()], |row| {
+                let uuid_str: String = row.get(0)?;
+                let collection_id_str: Option<String> = row.get(1)?;
                 Ok(Photo {
-                    uuid: row.get(0)?,
-                    collection_id: row.get(1)?,
+                    uuid: Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    collection_id: collection_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
                     quail_id: None,
                     event_id: None,
                     path: row.get(2)?,
@@ -456,6 +464,8 @@ impl PhotoGalleryService {
                     thumbnail_small_path: row.get(5)?,
                     thumbnail_medium_path: row.get(6)?,
                     sync_status: row.get(7)?,
+                    sync_error: None,
+                    retry_count: None,
                     created_at: row.get(8)?,
                 })
             })?
