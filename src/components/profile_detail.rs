@@ -34,15 +34,29 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
         });
     });
 
-    // Alle Bilder der Wachtel laden
+    // Alle Bilder der Wachtel laden (using collection-based API)
     let quail_id_for_photos = quail_id.clone();
     use_effect(move || {
         if let Ok(conn) = database::init_database() {
             if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_for_photos) {
-                if let Ok(photo_list) =
-                    crate::services::photo_service::list_quail_photos(&conn, &uuid)
-                {
-                    photos.set(photo_list);
+                // Try collection-based API first, fall back to old API
+                let photo_list =
+                    match crate::services::photo_service::get_quail_collection(&conn, &uuid) {
+                        Ok(Some(collection_id)) => {
+                            crate::services::photo_service::list_collection_photos(
+                                &conn,
+                                &collection_id,
+                            )
+                            .ok()
+                        }
+                        _ => None,
+                    }
+                    .or_else(|| {
+                        crate::services::photo_service::list_quail_photos(&conn, &uuid).ok()
+                    });
+
+                if let Some(list) = photo_list {
+                    photos.set(list);
                 }
             }
         }
@@ -181,32 +195,35 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                         match crate::camera::pick_images() {
                                             Ok(paths) => {
                                                 if let Ok(conn) = database::init_database() {
-                                                    let mut first = true;
-                                                    for pth in paths {
-                                                        let path_str = pth.to_string_lossy().to_string();
-                                                        let _is_profile = first && photos().is_empty();
-                                                        if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
-                                                            match crate::services::photo_service::add_quail_photo(
-                                                                &conn,
-                                                                uuid,
-                                                                path_str,
-                                                                None, // Thumbnails werden im Service erstellt
-                                                            ).await {
-                                                                Ok(_) => {}
-                                                                Err(e) => {
-                                                                    upload_error.set(format!("Fehler beim Speichern: {}", e));
-                                                                    break;
+                                                    if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
+                                                        // Get or create collection for this quail
+                                                        match crate::services::photo_service::get_or_create_quail_collection(&conn, &uuid) {
+                                                            Ok(collection_id) => {
+                                                                for pth in paths {
+                                                                    let path_str = pth.to_string_lossy().to_string();
+                                                                    match crate::services::photo_service::add_photo_to_collection(
+                                                                        &conn,
+                                                                        &collection_id,
+                                                                        path_str,
+                                                                    ).await {
+                                                                        Ok(_) => {}
+                                                                        Err(e) => {
+                                                                            upload_error.set(format!("Fehler beim Speichern: {}", e));
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                // Reload photos from collection
+                                                                if let Ok(photo_list) = crate::services::photo_service::list_collection_photos(
+                                                                    &conn,
+                                                                    &collection_id,
+                                                                ) {
+                                                                    photos.set(photo_list);
                                                                 }
                                                             }
-                                                        }
-                                                        first = false;
-                                                    }
-                                                    if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
-                                                        if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
-                                                            &conn,
-                                                            &uuid,
-                                                        ) {
-                                                            photos.set(photo_list);
+                                                            Err(e) => {
+                                                                upload_error.set(format!("Fehler beim Erstellen der Sammlung: {}", e));
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -251,23 +268,31 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                                                 if let Ok(conn) = database::init_database() {
                                                     let path_str = path.to_string_lossy().to_string();
                                                     if let Ok(uuid) = uuid::Uuid::parse_str(&quail_id_clone) {
-                                                        match crate::services::photo_service::add_quail_photo(
-                                                            &conn,
-                                                            uuid,
-                                                            path_str,
-                                                            None, // Thumbnails werden im Service erstellt
-                                                        ).await {
-                                                            Ok(_) => {
-                                                                if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
+                                                        // Get or create collection for this quail
+                                                        match crate::services::photo_service::get_or_create_quail_collection(&conn, &uuid) {
+                                                            Ok(collection_id) => {
+                                                                match crate::services::photo_service::add_photo_to_collection(
                                                                     &conn,
-                                                                    &uuid,
-                                                                ) {
-                                                                    photos.set(photo_list);
+                                                                    &collection_id,
+                                                                    path_str,
+                                                                ).await {
+                                                                    Ok(_) => {
+                                                                        if let Ok(photo_list) = crate::services::photo_service::list_collection_photos(
+                                                                            &conn,
+                                                                            &collection_id,
+                                                                        ) {
+                                                                            photos.set(photo_list);
+                                                                        }
+                                                                    }
+                                                                    Err(e) => {
+                                                                        upload_error
+                                                                            .set(format!("{}: {}", t!("error-save-failed"), e))
+                                                                    }
                                                                 }
                                                             }
                                                             Err(e) => {
                                                                 upload_error
-                                                                    .set(format!("{}: {}", t!("error-save-failed"), e))
+                                                                    .set(format!("{}: {}", t!("error-collection-failed"), e))
                                                             }
                                                         }
                                                     }

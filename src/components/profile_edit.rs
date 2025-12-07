@@ -40,21 +40,33 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                             // Failed to load
                         }
                     }
-                    // Lade alle Fotos
-                    match crate::services::photo_service::list_quail_photos(&conn, &uuid) {
-                        Ok(photo_list) => {
-                            // Finde aktuelles Profilbild
-                            if let Ok(Some(profile_photo)) =
-                                crate::services::photo_service::get_profile_photo(&conn, &uuid)
-                            {
-                                selected_profile_photo_id.set(Some(profile_photo.uuid.to_string()));
+                    // Lade alle Fotos (using collection-based API)
+                    let photo_list =
+                        match crate::services::photo_service::get_quail_collection(&conn, &uuid) {
+                            Ok(Some(collection_id)) => {
+                                crate::services::photo_service::list_collection_photos(
+                                    &conn,
+                                    &collection_id,
+                                )
+                                .ok()
                             }
-                            photos.set(photo_list);
+                            _ => None,
                         }
-                        Err(e) => {
-                            log::error!("{}: {}", t!("error-load-photos-failed"), e);
-                            // Failed to load photos
+                        .or_else(|| {
+                            crate::services::photo_service::list_quail_photos(&conn, &uuid).ok()
+                        });
+
+                    if let Some(list) = photo_list {
+                        // Finde aktuelles Profilbild
+                        if let Ok(Some(profile_photo)) =
+                            crate::services::photo_service::get_profile_photo(&conn, &uuid)
+                        {
+                            selected_profile_photo_id.set(Some(profile_photo.uuid.to_string()));
                         }
+                        photos.set(list);
+                    } else {
+                        log::error!("{}", t!("error-load-photos-failed"));
+                        // Failed to load photos
                     }
                 }
             }
@@ -307,11 +319,16 @@ pub fn ProfileEditScreen(quail_id: String, on_navigate: EventHandler<Screen>) ->
                                                 {
                                                     Ok(_) => {
                                                         if let Ok(q_uuid) = uuid::Uuid::parse_str(&qid) {
-                                                            if let Ok(photo_list) = crate::services::photo_service::list_quail_photos(
-                                                                &conn,
-                                                                &q_uuid,
-                                                            ) {
-                                                                photos.set(photo_list);
+                                                            // Reload photos using collection-based API
+                                                            let photo_list = match crate::services::photo_service::get_quail_collection(&conn, &q_uuid) {
+                                                                Ok(Some(collection_id)) => {
+                                                                    crate::services::photo_service::list_collection_photos(&conn, &collection_id).ok()
+                                                                }
+                                                                _ => None,
+                                                            }.or_else(|| crate::services::photo_service::list_quail_photos(&conn, &q_uuid).ok());
+
+                                                            if let Some(list) = photo_list {
+                                                                photos.set(list);
                                                                 if selected_profile_photo_id().as_ref().map(|s| s.as_str())
                                                                     == Some(&photo_id)
                                                                 {
