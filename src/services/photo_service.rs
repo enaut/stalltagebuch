@@ -478,15 +478,17 @@ pub fn get_or_create_quail_collection(
     use rusqlite::params;
 
     // Check if quail already has a collection
-    let existing: Option<String> = conn
+    // Use Option<String> in the closure to handle NULL values properly
+    let existing: Option<Option<String>> = conn
         .query_row(
             "SELECT collection_id FROM quails WHERE uuid = ?1",
             params![quail_id.to_string()],
-            |row| row.get(0),
+            |row| row.get::<_, Option<String>>(0),
         )
         .optional()?;
 
-    if let Some(collection_id_str) = existing {
+    // Flatten: None = quail not found, Some(None) = quail found but no collection
+    if let Some(Some(collection_id_str)) = existing {
         // Collection already exists
         return Uuid::parse_str(&collection_id_str)
             .map_err(|e| AppError::Other(format!("Invalid collection UUID: {}", e)));
@@ -530,15 +532,17 @@ pub fn get_or_create_event_collection(
     use rusqlite::params;
 
     // Check if event already has a collection
-    let existing: Option<String> = conn
+    // Use Option<String> in the closure to handle NULL values properly
+    let existing: Option<Option<String>> = conn
         .query_row(
             "SELECT collection_id FROM quail_events WHERE uuid = ?1",
             params![event_id.to_string()],
-            |row| row.get(0),
+            |row| row.get::<_, Option<String>>(0),
         )
         .optional()?;
 
-    if let Some(collection_id_str) = existing {
+    // Flatten: None = event not found, Some(None) = event found but no collection
+    if let Some(Some(collection_id_str)) = existing {
         // Collection already exists
         return Uuid::parse_str(&collection_id_str)
             .map_err(|e| AppError::Other(format!("Invalid collection UUID: {}", e)));

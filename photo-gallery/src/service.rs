@@ -246,11 +246,20 @@ impl PhotoGalleryService {
     }
 
     /// Get profile photo for a quail
+    ///
+    /// First tries to get the explicitly set profile_photo from the quails table.
+    /// If none is set, falls back to the first photo in the quail's collection.
     pub fn get_profile_photo(
         &self,
         conn: &Connection,
         quail_uuid: &Uuid,
     ) -> Result<Option<Photo>, PhotoGalleryError> {
+        log::debug!(
+            "get_profile_photo: Looking for profile photo of quail {}",
+            quail_uuid
+        );
+
+        // First, try to get the explicitly set profile_photo
         let mut stmt = conn.prepare(
             "SELECT p.uuid, p.quail_id, p.event_id, COALESCE(p.relative_path, p.path) as rel_path, p.thumbnail_path,
                     p.thumbnail_small_path, p.thumbnail_medium_path, p.sync_status, p.sync_error, p.retry_count
@@ -291,7 +300,75 @@ impl PhotoGalleryService {
             })
             .optional()?;
 
-        Ok(res)
+        if res.is_some() {
+            log::debug!(
+                "get_profile_photo: Found explicit profile_photo for quail {}",
+                quail_uuid
+            );
+            return Ok(res);
+        }
+
+        // No explicit profile_photo set, try to get the first photo from the quail's collection
+        log::debug!(
+            "get_profile_photo: No explicit profile_photo, checking collection for quail {}",
+            quail_uuid
+        );
+
+        let mut stmt = conn.prepare(
+            "SELECT p.uuid, p.quail_id, p.event_id, COALESCE(p.relative_path, p.path) as rel_path, p.thumbnail_path,
+                    p.thumbnail_small_path, p.thumbnail_medium_path, p.sync_status, p.sync_error, p.retry_count
+             FROM photos p 
+             JOIN quails q ON q.collection_id = p.collection_id
+             WHERE q.uuid = ?1 AND p.deleted = 0
+             ORDER BY p.created_at ASC
+             LIMIT 1",
+        )?;
+
+        let fallback_res = stmt
+            .query_row(params![quail_uuid.to_string()], |row| {
+                let uuid_str: String = row.get(0)?;
+                let quail_id_str: Option<String> = row.get(1)?;
+                let event_id_str: Option<String> = row.get(2)?;
+                let relative_path: String = row.get(3)?;
+                let relative_thumb: Option<String> = row.get(4)?;
+                let thumbnail_small: Option<String> = row.get(5)?;
+                let thumbnail_medium: Option<String> = row.get(6)?;
+                let sync_status: Option<String> = row.get(7)?;
+                let sync_error: Option<String> = row.get(8)?;
+                let retry_count: Option<i32> = row.get(9)?;
+
+                Ok(Photo {
+                    uuid: Uuid::parse_str(&uuid_str).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    quail_id: quail_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
+                    collection_id: None,
+                    event_id: event_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
+                    path: self.get_absolute_photo_path(&relative_path),
+                    relative_path: Some(relative_path.clone()),
+                    thumbnail_path: relative_thumb.map(|t| self.get_absolute_photo_path(&t)),
+                    thumbnail_small_path: thumbnail_small.map(|t| self.get_absolute_photo_path(&t)),
+                    thumbnail_medium_path: thumbnail_medium
+                        .map(|t| self.get_absolute_photo_path(&t)),
+                    sync_status,
+                    sync_error,
+                    retry_count,
+                    created_at: None,
+                })
+            })
+            .optional()?;
+
+        if fallback_res.is_some() {
+            log::debug!(
+                "get_profile_photo: Found collection photo as fallback for quail {}",
+                quail_uuid
+            );
+        } else {
+            log::debug!(
+                "get_profile_photo: No photos found at all for quail {}",
+                quail_uuid
+            );
+        }
+
+        Ok(fallback_res)
     }
 
     /// Delete a photo
@@ -409,10 +486,11 @@ impl PhotoGalleryService {
         log::debug!("Medium thumbnail: {}", medium_thumb);
 
         let photo_uuid = Uuid::new_v4();
+        // relative_path is just the filename (no prefix), since storage_path already points to the photos directory
         let relative_path = std::path::Path::new(&new_path)
             .file_name()
             .and_then(|s| s.to_str())
-            .map(|s| format!("photos/{}", s))
+            .map(|s| s.to_string())
             .unwrap_or_else(|| new_path.clone());
 
         // Save to database with collection_id
