@@ -57,6 +57,12 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
 
                 if let Some(list) = photo_list {
                     photos.set(list);
+                    // Reset photo index if it's out of bounds
+                    if current_photo_index() >= list.len() && !list.is_empty() {
+                        current_photo_index.set(list.len() - 1);
+                    } else if list.is_empty() {
+                        current_photo_index.set(0);
+                    }
                 }
             }
         }
@@ -522,18 +528,29 @@ pub fn ProfileDetailScreen(quail_id: String, on_navigate: EventHandler<Screen>) 
                         style: "flex:1; display:flex; align-items:center; justify-content:center; padding:16px;",
                         onclick: move |e| e.stop_propagation(),
                         {
-                            let current_photo = &photos()[current_photo_index()];
-                            let full_path = current_photo.path.clone();
-                            match image_processing::image_path_to_data_url(&full_path) {
-                                Ok(data_url) => rsx! {
-                                    img {
-                                        src: data_url,
-                                        style: "max-width:100%; max-height:100%; object-fit:contain;",
+                            // Bounds check to prevent crash
+                            let idx = current_photo_index();
+                            let photo_vec = photos();
+                            if idx < photo_vec.len() {
+                                let current_photo = &photo_vec[idx];
+                                let full_path = current_photo.path.clone();
+                                match image_processing::image_path_to_data_url(&full_path) {
+                                    Ok(data_url) => rsx! {
+                                        img {
+                                            src: data_url,
+                                            style: "max-width:100%; max-height:100%; object-fit:contain;",
+                                        }
+                                    },
+                                    Err(_) => rsx! {
+                                        div { style: "color:white; font-size:48px;", "⚠️" }
+                                    },
+                                }
+                            } else {
+                                rsx! {
+                                    div { style: "color:white; font-size:24px;",
+                                        "No photo available"
                                     }
-                                },
-                                Err(_) => rsx! {
-                                    div { style: "color:white; font-size:48px;", "⚠️" }
-                                },
+                                }
                             }
                         }
                     }
