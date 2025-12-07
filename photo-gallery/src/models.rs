@@ -25,12 +25,16 @@ pub struct Photo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<Uuid>,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relative_path: Option<String>,
     pub thumbnail_path: Option<String>,
     pub thumbnail_small_path: Option<String>,
     pub thumbnail_medium_path: Option<String>,
     pub sync_status: Option<String>,
     pub sync_error: Option<String>,
     pub retry_count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
 }
 
 /// Size variants for photo retrieval

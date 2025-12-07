@@ -375,4 +375,92 @@ impl PhotoGalleryService {
             )),
         }
     }
+
+    // === Collection-Based API (New) ===
+
+    /// Add a photo to a collection
+    ///
+    /// Returns the UUID of the created photo. The caller is responsible for
+    /// any additional operations like CRDT operation capture.
+    pub async fn add_photo_to_collection(
+        &self,
+        conn: &Connection,
+        collection_id: &Uuid,
+        path: String,
+    ) -> Result<Uuid, PhotoGalleryError> {
+        log::debug!("Adding photo to collection {}: {}", collection_id, path);
+
+        // Rename photo and create multi-size thumbnails (in blocking thread)
+        let (new_path, small_thumb, medium_thumb) = rename_photo_with_uuid(
+            &path,
+            self.config.thumbnail_small_size,
+            self.config.thumbnail_medium_size,
+        )
+        .await?;
+
+        log::debug!("Photo renamed to: {}", new_path);
+        log::debug!("Small thumbnail: {}", small_thumb);
+        log::debug!("Medium thumbnail: {}", medium_thumb);
+
+        let photo_uuid = Uuid::new_v4();
+        let relative_path = std::path::Path::new(&new_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| format!("photos/{}", s))
+            .unwrap_or_else(|| new_path.clone());
+
+        // Save to database with collection_id
+        conn.execute(
+            "INSERT INTO photos (uuid, collection_id, path, relative_path, thumbnail_path, thumbnail_small_path, thumbnail_medium_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                photo_uuid.to_string(),
+                collection_id.to_string(),
+                new_path,
+                relative_path,
+                small_thumb.clone(),
+                small_thumb,
+                medium_thumb,
+            ],
+        )?;
+
+        log::debug!("Photo saved to database with UUID: {}", photo_uuid);
+
+        Ok(photo_uuid)
+    }
+
+    /// List all photos in a collection
+    pub fn list_collection_photos(
+        &self,
+        conn: &Connection,
+        collection_id: &Uuid,
+    ) -> Result<Vec<Photo>, PhotoGalleryError> {
+        let mut stmt = conn.prepare(
+            "SELECT uuid, collection_id, path, relative_path, thumbnail_path, thumbnail_small_path, 
+                    thumbnail_medium_path, sync_status, created_at
+             FROM photos
+             WHERE collection_id = ?1 AND deleted = 0
+             ORDER BY created_at DESC",
+        )?;
+
+        let photos = stmt
+            .query_map(params![collection_id.to_string()], |row| {
+                Ok(Photo {
+                    uuid: row.get(0)?,
+                    collection_id: row.get(1)?,
+                    quail_id: None,
+                    event_id: None,
+                    path: row.get(2)?,
+                    relative_path: row.get(3)?,
+                    thumbnail_path: row.get(4)?,
+                    thumbnail_small_path: row.get(5)?,
+                    thumbnail_medium_path: row.get(6)?,
+                    sync_status: row.get(7)?,
+                    created_at: row.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(photos)
+    }
 }

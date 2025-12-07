@@ -467,3 +467,207 @@ pub async fn cleanup_orphaned_photos(conn: &Connection) -> Result<usize, AppErro
 
     Ok(count)
 }
+
+// === Collection-Based API (New) ===
+
+/// Get or create a photo collection for a quail
+pub fn get_or_create_quail_collection(
+    conn: &Connection,
+    quail_id: &Uuid,
+) -> Result<Uuid, AppError> {
+    use rusqlite::params;
+
+    // Check if quail already has a collection
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT collection_id FROM quails WHERE uuid = ?1",
+            params![quail_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    if let Some(collection_id_str) = existing {
+        // Collection already exists
+        return Uuid::parse_str(&collection_id_str)
+            .map_err(|e| AppError::Other(format!("Invalid collection UUID: {}", e)));
+    }
+
+    // Create new collection for this quail
+    let collection_id = Uuid::new_v4();
+    let quail_name: String = conn.query_row(
+        "SELECT name FROM quails WHERE uuid = ?1",
+        params![quail_id.to_string()],
+        |row| row.get(0),
+    )?;
+
+    conn.execute(
+        "INSERT INTO photo_collections (uuid, name) VALUES (?1, ?2)",
+        params![
+            collection_id.to_string(),
+            format!("Quail {} ({})", quail_name, quail_id)
+        ],
+    )?;
+
+    // Link collection to quail
+    conn.execute(
+        "UPDATE quails SET collection_id = ?1 WHERE uuid = ?2",
+        params![collection_id.to_string(), quail_id.to_string()],
+    )?;
+
+    log::debug!(
+        "Created collection {} for quail {}",
+        collection_id,
+        quail_id
+    );
+    Ok(collection_id)
+}
+
+/// Get or create a photo collection for an event
+pub fn get_or_create_event_collection(
+    conn: &Connection,
+    event_id: &Uuid,
+) -> Result<Uuid, AppError> {
+    use rusqlite::params;
+
+    // Check if event already has a collection
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT collection_id FROM quail_events WHERE uuid = ?1",
+            params![event_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    if let Some(collection_id_str) = existing {
+        // Collection already exists
+        return Uuid::parse_str(&collection_id_str)
+            .map_err(|e| AppError::Other(format!("Invalid collection UUID: {}", e)));
+    }
+
+    // Create new collection for this event
+    let collection_id = Uuid::new_v4();
+    let event_type: String = conn.query_row(
+        "SELECT event_type FROM quail_events WHERE uuid = ?1",
+        params![event_id.to_string()],
+        |row| row.get(0),
+    )?;
+
+    conn.execute(
+        "INSERT INTO photo_collections (uuid, name) VALUES (?1, ?2)",
+        params![
+            collection_id.to_string(),
+            format!("Event {} ({})", event_type, event_id)
+        ],
+    )?;
+
+    // Link collection to event
+    conn.execute(
+        "UPDATE quail_events SET collection_id = ?1 WHERE uuid = ?2",
+        params![collection_id.to_string(), event_id.to_string()],
+    )?;
+
+    log::debug!(
+        "Created collection {} for event {}",
+        collection_id,
+        event_id
+    );
+    Ok(collection_id)
+}
+
+/// Add photo to a collection (new collection-based API)
+pub async fn add_photo_to_collection(
+    conn: &Connection,
+    collection_id: &Uuid,
+    path: String,
+) -> Result<Uuid, AppError> {
+    log::debug!("Adding photo to collection {}: {}", collection_id, path);
+
+    let service = init_photo_service();
+
+    // Add photo using photo-gallery service
+    let photo_uuid = service
+        .add_photo_to_collection(conn, collection_id, path)
+        .await
+        .map_err(convert_error)?;
+
+    // Get the relative path for operation capture
+    let relative_path: String = conn.query_row(
+        "SELECT relative_path FROM photos WHERE uuid = ?1",
+        rusqlite::params![photo_uuid.to_string()],
+        |row| row.get(0),
+    )?;
+
+    let thumbnail_small: Option<String> = conn.query_row(
+        "SELECT thumbnail_small_path FROM photos WHERE uuid = ?1",
+        rusqlite::params![photo_uuid.to_string()],
+        |row| row.get(0),
+    )?;
+
+    // Capture CRDT operation after photo is created
+    crate::services::operation_capture::capture_photo_create(
+        conn,
+        &photo_uuid.to_string(),
+        None, // No direct quail_id
+        None, // No direct event_id
+        &relative_path,
+        thumbnail_small.as_deref(),
+    )
+    .await?;
+
+    Ok(photo_uuid)
+}
+
+/// List all photos in a collection
+pub fn list_collection_photos(
+    conn: &Connection,
+    collection_id: &Uuid,
+) -> Result<Vec<Photo>, AppError> {
+    let service = init_photo_service();
+    service
+        .list_collection_photos(conn, collection_id)
+        .map_err(convert_error)
+}
+
+/// Get the collection for a quail (if exists)
+pub fn get_quail_collection(conn: &Connection, quail_id: &Uuid) -> Result<Option<Uuid>, AppError> {
+    use rusqlite::params;
+
+    let collection_id_str: Option<String> = conn
+        .query_row(
+            "SELECT collection_id FROM quails WHERE uuid = ?1",
+            params![quail_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    match collection_id_str {
+        Some(id_str) => {
+            Ok(Some(Uuid::parse_str(&id_str).map_err(|e| {
+                AppError::Other(format!("Invalid collection UUID: {}", e))
+            })?))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Get the collection for an event (if exists)
+pub fn get_event_collection(conn: &Connection, event_id: &Uuid) -> Result<Option<Uuid>, AppError> {
+    use rusqlite::params;
+
+    let collection_id_str: Option<String> = conn
+        .query_row(
+            "SELECT collection_id FROM quail_events WHERE uuid = ?1",
+            params![event_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    match collection_id_str {
+        Some(id_str) => {
+            Ok(Some(Uuid::parse_str(&id_str).map_err(|e| {
+                AppError::Other(format!("Invalid collection UUID: {}", e))
+            })?))
+        }
+        None => Ok(None),
+    }
+}
